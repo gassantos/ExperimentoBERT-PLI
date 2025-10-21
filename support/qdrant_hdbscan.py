@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import hdbscan
 from qdrant_client import QdrantClient, models
@@ -35,7 +36,6 @@ def run_hdbscan_clustering(distance_matrix: lil_matrix) -> hdbscan.HDBSCAN:
     hdbscan_params = HDBSCAN_PARAMS.copy()
     hdbscan_params["max_dist"] = max_dist
     clusterer = hdbscan.HDBSCAN(**hdbscan_params)
-    # clusterer.fit(distance_matrix)
     connected_graphs = attach_fully_connected_node(
         distance_matrix.tocsr(), dist_fullyConnectedNode=max_dist
     )
@@ -207,7 +207,7 @@ def load_serialized_clusterer(path: str, client: QdrantClient):
     return point_ids, payloads, embeddings, clusterer
 
 
-def main():
+def main(collection_name: str, output_file: str):
     """
     Orquestra o pipeline completo de clustering escalável.
     """
@@ -215,21 +215,44 @@ def main():
         host=QDRANT_HOST, port=QDRANT_PORT, grpc_port=QDRANT_GRPC_PORT, prefer_grpc=True
     )
     point_ids, payloads, embeddings, distance_matrix = build_distance_matrix(
-        client, COLLECTION_NAME, K_NEIGHBORS
+        client, collection_name, K_NEIGHBORS
     )
 
     # # 3. Executar clustering
-    # clusterer = run_hdbscan_clustering(distance_matrix)
-    # joblib.dump(clusterer, "output/checkpoints/hdbscan.joblib")
+    clusterer = run_hdbscan_clustering(distance_matrix)
+    joblib.dump(clusterer, output_file)
 
-    point_ids, payloads, embeddings, clusterer = load_serialized_clusterer(
-        "output/checkpoints/hdbscan.joblib", client
-    )
+    # point_ids, payloads, embeddings, clusterer = load_serialized_clusterer(
+    #     output_file, client
+    # )
     # 4. Processar e utilizar os resultados
     process_and_update_results(
-        client, COLLECTION_NAME, point_ids, payloads, embeddings, clusterer
+        client, collection_name, point_ids, payloads, embeddings, clusterer
     )
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser(
+        description="Extrai segmentos relevantes do Qdrant e gera um arquivo JSON estruturado"
+    )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=COLLECTION_NAME,
+        # required=True,
+        help="Nome da coleção no Qdrant (padrão: coliee-test)",
+    )
+    parser.add_argument(
+        "--output-file",
+        type=str,
+        # required=True,
+        default="output/checkpoints/hdbscan.joblib",
+        help="Caminho para o arquivo de saída (padrão: output/checkpoints/hdbscan.joblib)",
+    )
+
+    args = parser.parse_args()
+    collection_name = args.collection
+    output_file = args.output_file
+
+    main(collection_name, output_file)

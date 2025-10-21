@@ -134,7 +134,6 @@ def process_case_pair_batch(
     """
     client = QdrantClient(host=qdrant_host, port=qdrant_port, 
                     grpc_port=qdrant_grcport, prefer_grpc=True)
-    # client = QdrantClient(host=qdrant_host, port=qdrant_port)
     model = load_embedding_model()
     
     all_points = []
