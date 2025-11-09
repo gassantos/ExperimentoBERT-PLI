@@ -44,6 +44,9 @@ if __name__ == "__main__":
         logger.error("CUDA is not available but specific gpu id")
         raise NotImplementedError
 
+    # Initialize all directories and components
+    # Set directory used in config file based on NLP directory files for training
+    # For this example, we are using BertPoint.config (README.md for more details)
     parameters = init_all(config, gpu_list, args.checkpoint, "train")
 
     train(parameters, config, gpu_list)
