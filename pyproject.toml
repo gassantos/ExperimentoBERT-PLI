@@ -1,0 +1,12 @@
+[project]
+name = "experimentobert-pli"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.2.6",
+    "pytorch-pretrained-bert>=0.6.2",
+    "tensorboardx>=2.6.4",
+    "tqdm>=4.67.1",
+]
