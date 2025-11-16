@@ -5,20 +5,20 @@
 
 `NV_GPU=5,7 USER_ID=${USER_ID} GROUP_ID=${GROUP_ID} nvidia-docker run -itd --rm --shm-size 5gb --name bert-pli -v ${PWD}:/app bert-pli:latest tail -f /dev/null`
 
-`python3 train.py -c config/nlp/BertPoint.config -g 0`
+`uv run python train.py -c config/nlp/BertPoint.config -g 0`
 
-`python3 poolout.py -c config/nlp/BertPoolOutMax.config -g 0 --checkpoint output/checkpoints/bert_finetuned/1.pkl --result output/results/pool_out_max.json`
+`uv run python poolout.py -c config/nlp/BertPoolOutMax.config -g 0 --checkpoint output/checkpoints/bert_finetuned/1.pkl --result output/results/pool_out_max.json`
 
-`python3 poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/train_poolout.json`
+`uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/train_poolout.json`
 
-`nohup python3 train.py -c config/nlp/AttenLSTM.config -g 1 &> nohup2.out &`
+`uv run python train.py -c config/nlp/AttenLSTM.config -g 0`
 
-`python3 test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json`
+`uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json`
 
 
-`python3 parse_results.py`
+`uv run python parse_results.py`
 
-`python parse_results.py evaluate data/task1_test_labels_2024.json output/results/gru_parsed_result.json output/results/metrics.json`
+`uv run python parse_results.py evaluate data/task1_test_labels_2024.json output/results/gru_parsed_result.json output/results/metrics.json`
 
 This repository contains the code for BERT-PLI in our IJCAI-PRICAI 2020 paper: *BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval*. 
 
@@ -109,7 +109,7 @@ Examples of input data. Note that we cannot make the raw data public according t
 - Stage 2: BERT Fine-tuning:
 
     ```bash
-    python3 train.py -c config/nlp/BertPoint.config -g [GPU_LIST]
+    uv run python train.py -c config/nlp/BertPoint.config -g [GPU_LIST]
     ```
 
 - Stage 3: 
@@ -117,22 +117,22 @@ Examples of input data. Note that we cannot make the raw data public according t
     Get paragraph-level interactions by BERT: 
 
     ```bash
-    python3 poolout.py -c config/nlp/BertPoolOutMax.config -g [GPU_LIST] --checkpoint [path of Bert checkpoint] --result [path to save results] 
+    uv run python poolout.py -c config/nlp/BertPoolOutMax.config -g [GPU_LIST] --checkpoint [path of Bert checkpoint] --result [path to save results] 
     ```
     Train
 
     ```bash
-    python3 train.py -c config/nlp/AttenGRU.config -g [GPU_LIST] 
+    uv run python train.py -c config/nlp/AttenGRU.config -g [GPU_LIST] 
 
-    python3 train.py -c config/nlp/AttenLSTM.config -g [GPU_LIST]
+    uv run python train.py -c config/nlp/AttenLSTM.config -g [GPU_LIST]
     ```
 
     Test
 
     ```bash
-    python3 test.py -c config/nlp/AttenGRU.config -g [GPU_LIST] --checkpoint [path of model checkpoint] --result [path to save results] 
+    uv run python test.py -c config/nlp/AttenGRU.config -g [GPU_LIST] --checkpoint [path of model checkpoint] --result [path to save results] 
 
-    python3 test.py -c config/nlp/AttenLSTM.config -g [GPU_LIST] --checkpoint [path of Bert checkpoint] --result [path to save results] 
+    uv run python test.py -c config/nlp/AttenLSTM.config -g [GPU_LIST] --checkpoint [path of Bert checkpoint] --result [path to save results] 
     ```
 
 
