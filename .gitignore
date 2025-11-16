@@ -12,7 +12,6 @@ temp
 notebook
 result
 output/
-data/
 support/.venv
 qdrant/
 backup_qdrant/
