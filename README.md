@@ -1,24 +1,52 @@
 # BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval
 
+## Quick Start with Synthetic Data
+
+This repository includes synthetic legal case data for educational purposes located in the `data/` directory:
+- `train_task2.json` - 30 paragraph pairs for BERT fine-tuning
+- `valid_task2.json` - 6 paragraph pairs for validation
+- `test_task1.json` - 10 documents for testing
+- `test_paragraphs_processed_data.json` - Processed data for poolout conversion
+- `task1_test_labels_2024.json` - Labels for evaluation
+
+### Step-by-Step Execution:
+
+**Stage 1: BM25 Selection** (calculate BM25 scores separately)
+
+**Stage 2: Fine-tune BERT for paragraph pair classification**
+```bash
+uv run python train.py -c config/nlp/BertPoint.config -g 0
+```
+
+**Stage 3: Extract paragraph-level interactions**
+```bash
+uv run python poolout.py -c config/nlp/BertPoolOutMax.config -g 0 --checkpoint output/checkpoints/bert_finetuned/1.pkl --result output/results/pool_out_max.json
+```
+
+**Convert poolout results to training format**
+```bash
+uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/train_poolout.json
+```
+
+**Train Attention-based RNN (LSTM)**
+```bash
+uv run python train.py -c config/nlp/AttenLSTM.config -g 0
+```
+
+**Test with Attention-based RNN (GRU)**
+```bash
+uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json
+```
+
+**Parse and evaluate results**
+```bash
+uv run python parse_results.py
+uv run python parse_results.py evaluate data/task1_test_labels_2024.json output/results/gru_parsed_result.json output/results/metrics.json
+```
 
 ## Instructions to run in nvidia container
 
 `NV_GPU=5,7 USER_ID=${USER_ID} GROUP_ID=${GROUP_ID} nvidia-docker run -itd --rm --shm-size 5gb --name bert-pli -v ${PWD}:/app bert-pli:latest tail -f /dev/null`
-
-`uv run python train.py -c config/nlp/BertPoint.config -g 0`
-
-`uv run python poolout.py -c config/nlp/BertPoolOutMax.config -g 0 --checkpoint output/checkpoints/bert_finetuned/1.pkl --result output/results/pool_out_max.json`
-
-`uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/train_poolout.json`
-
-`uv run python train.py -c config/nlp/AttenLSTM.config -g 0`
-
-`uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json`
-
-
-`uv run python parse_results.py`
-
-`uv run python parse_results.py evaluate data/task1_test_labels_2024.json output/results/gru_parsed_result.json output/results/metrics.json`
 
 This repository contains the code for BERT-PLI in our IJCAI-PRICAI 2020 paper: *BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval*. 
 
@@ -140,7 +168,13 @@ Examples of input data. Note that we cannot make the raw data public according t
 
 ### Data
 
-Please visit [COLIEE 2019](https://sites.ualberta.ca/~rabelo/COLIEE2019/) to apply for the whole dataset. 
+**For Educational/Testing Purposes**: This repository includes synthetic legal case data in the `data/` directory that simulates the structure of COLIEE dataset:
+- 30 paragraph pairs for training (balanced positive/negative examples)
+- 6 paragraph pairs for validation
+- 10 multi-paragraph documents for testing
+- Realistic legal content covering various topics (contracts, constitutional law, civil procedure, etc.)
+
+**For Research/Production**: Please visit [COLIEE 2019](https://sites.ualberta.ca/~rabelo/COLIEE2019/) to apply for the actual competition dataset.
 
 Please email shaoyq18@mails.tsinghua.edu.cn for the checkpoint of fine-tuned BERT. 
 
