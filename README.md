@@ -40,15 +40,17 @@ uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -
 ```
 
 
-**Stage 4:Train Attention-based RNN (LSTM)**
+**Stage 4:Train Attention-based RNN (LSTM/GRU)**
 
 ```bash
 uv run python train.py -c config/nlp/AttenLSTM.config -g 0
+uv run python train.py -c config/nlp/AttenGRU.config -g 0
 ```
 
-**Stage 5:Test with Attention-based RNN (GRU)**
+**Stage 5:Test with Attention-based RNN (LSTM/GRU)**
 
 ```bash
+uv run python test.py -c config/nlp/AttenLSTM.config -g 0 --checkpoint output/checkpoints/attenlstm/59.pkl --result output/results/lstm_results.json
 uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json
 ```
 
@@ -56,7 +58,7 @@ uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/che
 
 ```bash
 uv run python parse_results.py
-uv run python parse_results.py evaluate data/task1_test_labels_2024.json output/results/gru_parsed_result.json output/results/metrics.json
+uv run python parse_results.py evaluate data/task1_test_labels_2024.json output/results/lstm_parsed_result.json output/results/metrics.json
 ```
 
 This repository contains the code for BERT-PLI in our IJCAI-PRICAI 2020 paper: *BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval*.
