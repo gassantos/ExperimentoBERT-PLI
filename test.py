@@ -3,6 +3,7 @@ import os
 import torch
 import logging
 import json
+from pathlib import Path
 
 from tools.init_tool import init_all
 from config_parser import create_config
@@ -43,11 +44,15 @@ if __name__ == "__main__":
     cuda = torch.cuda.is_available()
     logger.info("CUDA available: %s" % str(cuda))
     if not cuda and len(gpu_list) > 0:
-        logger.error("CUDA is not available but specific gpu id")
-        raise NotImplementedError
+        logger.warning("CUDA is not available but GPU was requested. Falling back to CPU execution.")
+        use_gpu = False
+        gpu_list = []
 
     parameters = init_all(config, gpu_list, args.checkpoint, "test")
 
+    # Create output directory if it doesn't exist
+    Path(args.result).parent.mkdir(parents=True, exist_ok=True)
+    
     if config.getboolean('output', 'save_as_dict'):
         out_file = open(args.result, 'w', encoding='utf-8')
         outputs = test(parameters, config, gpu_list)

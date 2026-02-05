@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 def parse_gru_results(input_file, output_file):
     """
@@ -54,6 +55,9 @@ def parse_gru_results(input_file, output_file):
     # Sort the results for consistent output
     for key in result:
         result[key] = sorted(list(set(result[key])))
+    
+    # Create output directory if it doesn't exist
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     
     # Write the result to output file
     with open(output_file, 'w') as f:
@@ -154,7 +158,7 @@ def evaluate_predictions(labels_file, predicted_file, output_file=None):
         predicted_file: Path to the predicted results JSON file
         output_file: Optional path to save results as JSON
     """
-    print(f"Evaluating predictions...")
+    print("Evaluating predictions...")
     print(f"Labels file: {labels_file}")
     print(f"Predicted file: {predicted_file}")
     print("-" * 50)
@@ -162,14 +166,14 @@ def evaluate_predictions(labels_file, predicted_file, output_file=None):
     metrics = compute_metrics(labels_file, predicted_file)
     
     # Print standard metrics
-    print(f"Standard Metrics:")
+    print("Standard Metrics:")
     print(f"Precision: {metrics['precision']:.4f}")
     print(f"Recall: {metrics['recall']:.4f}")
     print(f"F1-Score: {metrics['f1_score']:.4f}")
     print()
     
     # Print @k metrics
-    print(f"@k Metrics:")
+    print("@k Metrics:")
     k_values = [1, 3, 5, 10]
     for k in k_values:
         if f'precision@{k}' in metrics:
@@ -179,7 +183,7 @@ def evaluate_predictions(labels_file, predicted_file, output_file=None):
             print()
     
     # Print summary
-    print(f"Summary:")
+    print("Summary:")
     print(f"Total cases: {metrics['total_cases']}")
     print(f"Total true positives: {metrics['total_true_positives']}")
     print(f"Total predicted: {metrics['total_predicted']}")
@@ -187,7 +191,7 @@ def evaluate_predictions(labels_file, predicted_file, output_file=None):
     
     # Save results if output file is specified
     if output_file:
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, 'w') as f:
             json.dump(metrics, f, indent=2, sort_keys=True)
         print(f"\nResults saved to: {output_file}")

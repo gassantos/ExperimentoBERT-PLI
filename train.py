@@ -41,8 +41,9 @@ if __name__ == "__main__":
     cuda = torch.cuda.is_available()
     logger.info("CUDA available: %s" % str(cuda))
     if not cuda and len(gpu_list) > 0:
-        logger.error("CUDA is not available but specific gpu id")
-        raise NotImplementedError
+        logger.warning("CUDA is not available but GPU was requested. Falling back to CPU execution.")
+        use_gpu = False
+        gpu_list = []
 
     # Initialize all directories and components
     # Set directory used in config file based on NLP directory files for training

@@ -6,6 +6,7 @@ import os
 import torch
 import json
 import logging
+from pathlib import Path
 
 from tools.init_tool import init_all
 from tools.poolout_tool import pool_out
@@ -47,8 +48,9 @@ if __name__ == "__main__":
     cuda = torch.cuda.is_available()
     logger.info("CUDA available: %s" % str(cuda))
     if not cuda and len(gpu_list) > 0:
-        logger.error("CUDA is not available but specific gpu id")
-        raise NotImplementedError
+        logger.warning("CUDA is not available but GPU was requested. Falling back to CPU execution.")
+        use_gpu = False
+        gpu_list = []
 
     # Initialize all directories and components
     # Set directory used in config file based on NLP directory files for training
@@ -56,6 +58,9 @@ if __name__ == "__main__":
     # - directory: output/results/
     parameters = init_all(config, gpu_list, args.checkpoint, "poolout")
 
+    # Create output directory if it doesn't exist
+    Path(args.result).parent.mkdir(parents=True, exist_ok=True)
+    
     out_file = open(args.result, 'w', encoding='utf-8')
     outputs = pool_out(parameters, config, gpu_list, args.result)
     logger.info(f"Total number of outputs: {outputs}")
