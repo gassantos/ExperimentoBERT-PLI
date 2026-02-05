@@ -49,8 +49,9 @@ def init_one_dataset(config, mode, *args, **params):
         reader_num = config.getint("train", "reader_num")
         drop_last = True
         if mode in ["valid", "test"]:
+            drop_last = False
             if mode == "test":
-                drop_last = False
+                pass
 
             try:
                 batch_size = config.getint("eval", "batch_size")
