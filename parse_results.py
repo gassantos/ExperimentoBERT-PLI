@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+import torch
+
 def parse_gru_results(input_file, output_file):
     """
     Parse GRU results and create formatted output based on score comparison.
@@ -10,6 +12,9 @@ def parse_gru_results(input_file, output_file):
         input_file: Path to the input JSON file with GRU results
         output_file: Path to the output JSON file to create
     """
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
     # Read the input file
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -28,29 +33,23 @@ def parse_gru_results(input_file, output_file):
         if not scores or len(scores) != 2:
             continue
         
-        # Parse case pair (format: "case1_case2")
+        # Parse case pair (format: "query_doc")
         parts = case_pair.split('_')
         if len(parts) != 2:
             continue
             
-        case1, case2 = parts[0], parts[1]
-        score1, score2 = scores[0], scores[1]
+        query, doc = parts[0], parts[1]
+        score_irrelevant, score_relevant = scores[0], scores[1]
         
         # Create file names
-        case1_file = f"{case1}.txt"
-        case2_file = f"{case2}.txt"
+        query_file = f"{query}.txt"
+        doc_file = f"{doc}.txt"
         
-        # Determine which case should be included based on score comparison
-        if score1 > score2:
-            # Case1 has higher score, so case1_file should contain case2_file
-            if case1_file not in result:
-                result[case1_file] = []
-            result[case1_file].append(case2_file)
-        else:
-            # Case2 has higher score, so case2_file should contain case1_file
-            if case2_file not in result:
-                result[case2_file] = []
-            result[case2_file].append(case1_file)
+        # If relevant score is higher, doc is relevant for query
+        if score_relevant > score_irrelevant:
+            if query_file not in result:
+                result[query_file] = []
+            result[query_file].append(doc_file)
     
     # Sort the results for consistent output
     for key in result:
@@ -78,12 +77,27 @@ def compute_metrics(labels_file, predicted_file, k_values=[1, 3, 5, 10]):
     Returns:
         Dictionary containing all computed metrics
     """
-    # Load data
+    # Load labels (JSON Lines format - one object per line)
+    labels = {}
     with open(labels_file, 'r') as f:
-        labels = json.load(f)
+        for line in f:
+            line = line.strip()
+            if line:  # Skip empty lines
+                obj = json.loads(line)
+                labels.update(obj)
     
+    # Load predicted results (standard JSON)
     with open(predicted_file, 'r') as f:
         predicted = json.load(f)
+    
+    # Normalize keys: remove .txt extension for comparison
+    def normalize_key(key):
+        """Remove .txt extension if present"""
+        return key.replace('.txt', '') if key.endswith('.txt') else key
+    
+    # Normalize all keys in labels and predictions
+    labels = {normalize_key(k): [normalize_key(v) for v in vals] for k, vals in labels.items()}
+    predicted = {normalize_key(k): [normalize_key(v) for v in vals] for k, vals in predicted.items()}
     
     # Initialize counters
     total_true_positives = 0
@@ -213,11 +227,12 @@ if __name__ == "__main__":
         
         evaluate_predictions(labels_file, predicted_file, output_file)
     else:
-        # Original GRU parsing mode
-        input_file = "output/results/gru_results.json"
-        output_file = "output/results/gru_parsed_result.json"
+        # Determine file names based on GPU flag
+        cuda = torch.cuda.is_available()
+        use_gru = os.environ.get('GRU', 'False').lower() in ('true', '1', 't')
+        model_prefix = "gru" if use_gru else "lstm"
         
-        # Create output directory if it doesn't exist
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        input_file = f"output/results/{model_prefix}_results.json"
+        output_file = f"output/results/{model_prefix}_parsed_result.json"
         
         parse_gru_results(input_file, output_file)
