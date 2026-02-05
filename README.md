@@ -33,6 +33,13 @@ uv run python poolout.py -c config/nlp/BertPoolOutMax.config -g 0 --checkpoint o
 uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/train_poolout.json
 ```
 
+**Stage 3.2:Convert poolout results to validation format**
+
+```bash
+uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/valid_poolout.json
+```
+
+
 **Stage 4:Train Attention-based RNN (LSTM)**
 
 ```bash
