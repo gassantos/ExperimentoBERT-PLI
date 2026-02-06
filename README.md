@@ -1,5 +1,8 @@
 # BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval
 
+Para executar no **Google Colab**, acesse: 
+ - [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ptcAKCC_f7lX5y9B_zJ3iisO11W1Ny2K)
+
 ## Quick Start with Synthetic Data
 
 This repository includes synthetic legal case data for educational purposes located in the `data/` directory:
