@@ -33,7 +33,7 @@ def init_one_dataset(config, mode, *args, **params):
     if mode != "train":
         try:
             config.get("data", "%s_dataset_type" % temp_mode)
-        except Exception as e:
+        except Exception:
             logger.warning(
                 "[reader] %s_dataset_type has not been defined in config file, use [dataset] train_dataset_type instead." % temp_mode)
             temp_mode = "train"
@@ -52,7 +52,7 @@ def init_one_dataset(config, mode, *args, **params):
 
             try:
                 batch_size = config.getint("eval", "batch_size")
-            except Exception as e:
+            except Exception:
                 logger.warning("[eval] batch size has not been defined in config file, use [train] batch_size instead.")
 
             try:
@@ -62,7 +62,7 @@ def init_one_dataset(config, mode, *args, **params):
                 logger.warning("[eval] shuffle has not been defined in config file, use false as default.")
             try:
                 reader_num = config.getint("eval", "reader_num")
-            except Exception as e:
+            except Exception:
                 logger.warning("[eval] reader num has not been defined in config file, use [train] reader num instead.")
 
         # Windows multiprocessing workaround
