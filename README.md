@@ -59,7 +59,6 @@ uv run python test.py -c config/nlp/AttenLSTM.config -g 0 --checkpoint output/ch
 **Stage 5b:Test with Attention-based RNN (GRU)**
 
 ```bash
-uv run python test.py -c config/nlp/AttenLSTM.config -g 0 --checkpoint output/checkpoints/attenlstm/59.pkl --result output/results/lstm_results.json
 uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json
 ```
 
