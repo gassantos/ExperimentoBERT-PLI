@@ -8,6 +8,9 @@ def init_optimizer(model, config, *args, **params):
     if optimizer_type == "adam":
         optimizer = optim.Adam(model.parameters(), lr=learning_rate,
                                weight_decay=config.getfloat("train", "weight_decay"))
+    elif optimizer_type == "adamw":
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate,
+                                weight_decay=config.getfloat("train", "weight_decay"))
     elif optimizer_type == "sgd":
         optimizer = optim.SGD(model.parameters(), lr=learning_rate,
                               weight_decay=config.getfloat("train", "weight_decay"))
