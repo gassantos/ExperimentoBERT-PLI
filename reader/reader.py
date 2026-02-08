@@ -1,5 +1,6 @@
 from torch.utils.data import DataLoader
 import logging
+import platform
 
 import formatter as form
 from dataset import dataset_list
@@ -10,25 +11,21 @@ collate_fn = {}
 formatter = {}
 
 
+class CollateFn:
+    """Wrapper class to make collate_fn picklable for multiprocessing on Windows"""
+    def __init__(self, formatter_obj, config, mode):
+        self.formatter_obj = formatter_obj
+        self.config = config
+        self.mode = mode
+    
+    def __call__(self, data):
+        return self.formatter_obj.process(data, self.config, self.mode)
+
+
 def init_formatter(config, task_list, *args, **params):
     for task in task_list:
         formatter[task] = form.init_formatter(config, task, *args, **params)
-
-        def train_collate_fn(data):
-            return formatter["train"].process(data, config, "train")
-
-        def valid_collate_fn(data):
-            return formatter["valid"].process(data, config, "valid")
-
-        def test_collate_fn(data):
-            return formatter["test"].process(data, config, "test")
-
-        if task == "train":
-            collate_fn[task] = train_collate_fn
-        elif task == "valid":
-            collate_fn[task] = valid_collate_fn
-        else:
-            collate_fn[task] = test_collate_fn
+        collate_fn[task] = CollateFn(formatter[task], config, task)
 
 
 def init_one_dataset(config, mode, *args, **params):
@@ -60,13 +57,22 @@ def init_one_dataset(config, mode, *args, **params):
 
             try:
                 shuffle = config.getboolean("eval", "shuffle")
-            except Exception as e:
+            except Exception:
                 shuffle = False
                 logger.warning("[eval] shuffle has not been defined in config file, use false as default.")
             try:
                 reader_num = config.getint("eval", "reader_num")
             except Exception as e:
                 logger.warning("[eval] reader num has not been defined in config file, use [train] reader num instead.")
+
+        # Windows multiprocessing workaround
+        if platform.system() == 'Windows' and reader_num > 0:
+            logger.warning(
+                "[reader] Multiprocessing DataLoader (reader_num > 0) can cause issues on Windows. "
+                "Setting num_workers=0 to avoid serialization errors. "
+                "To enable multiprocessing, ensure all objects are picklable or use Linux/macOS."
+            )
+            reader_num = 0
 
         dataloader = DataLoader(dataset=dataset,
                                 batch_size=batch_size,

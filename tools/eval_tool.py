@@ -1,11 +1,8 @@
 import logging
-import os
 import torch
 import numpy as np
 from collections import defaultdict
 from torch.autograd import Variable
-from torch.optim import lr_scheduler
-from tensorboardX import SummaryWriter
 from timeit import default_timer as timer
 
 logger = logging.getLogger(__name__)
@@ -21,7 +18,7 @@ def gen_time_str(t):
 def output_value(epoch, mode, step, time, loss, info, end, config):
     try:
         delimiter = config.get("output", "delimiter")
-    except Exception as e:
+    except Exception:
         delimiter = " "
     s = ""
     s = s + str(epoch) + " "
@@ -41,7 +38,7 @@ def output_value(epoch, mode, step, time, loss, info, end, config):
         s += " "
     s += str(info)
     s = s.replace(" ", delimiter)
-    if not (end is None):
+    if end is not None:
         print(s, end=end)
     else:
         print(s)
@@ -96,9 +93,6 @@ def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode
 
     output_time = config.getint("output", "output_time")
     step = -1
-    more = ""
-    if total_len < 10000:
-        more = "\t"
     result = []
 
     for step, data in enumerate(dataset):
@@ -111,7 +105,7 @@ def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode
 
         results = model(data, config, gpu_list, acc_result, "valid")
         loss, acc_result, output = results["loss"], results["acc_result"], results["output"]
-        total_loss += float(loss)
+        total_loss += loss.detach().item()
         result = result + output
         cnt += 1
 
