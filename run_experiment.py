@@ -67,13 +67,14 @@ def execute_experiment(config_path):
     experiment_id = str(uuid.uuid4())
     start_time = time.time()
     start_iso = now_iso()
+    DATE_EXEC = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # -------- ENERGY TRACKER --------
     tracker = None
     if EmissionsTracker and mon.getboolean("enable_monitoring"):
         tracker = EmissionsTracker(
             project_name=exp["name"],
-            output_dir=OUTPUT_DIR,
+            output_dir=METRICS_DIR,
             log_level="error"
         )
         tracker.start()
@@ -123,12 +124,23 @@ def execute_experiment(config_path):
     # =========================
     # JSON OUTPUT
     # =========================
+    
+    # Padronização do log filename
+    id = exp["name"]
+    optmzr = train["optimizer"]
+    lr = f"lr{train['learning_rate']}".replace('-', '')
+    bs = f"bs{train['batch_size']}"
+    ep = f"ep{train['epoch']}"
+
+    json_filename = f"{id}_{optmzr}_{lr}_{bs}_{ep}_{DATE_EXEC}.json"
+
     result = {
         "experiment": {
             "id": experiment_id,
-            "config_name": exp["name"],
+            "config_name": json_filename,
             "seed": int(exp["seed"]),
             "status": status,
+            "date": DATE_EXEC,
             "timestamp_start": start_iso,
             "timestamp_end": end_iso
         },
@@ -156,11 +168,7 @@ def execute_experiment(config_path):
         }
     }
 
-    json_path = os.path.join(
-        OUTPUT_DIR,
-        f"{exp['name']}_{exp['seed']}.json"
-    )
-
+    json_path = os.path.join(METRICS_DIR, json_filename)
     with open(json_path, "w") as f:
         json.dump(result, f, indent=2)
 
@@ -193,7 +201,7 @@ def execute_experiment(config_path):
 
         writer.writerow([
             experiment_id,
-            exp["name"],
+            json_filename,
             exp["seed"],
             device_type,
             train["optimizer"],
