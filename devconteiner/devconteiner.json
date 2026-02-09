@@ -1,0 +1,27 @@
+{
+  "name": "ExperimentoBERT-PLI (uv)",
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  "workspaceFolder": "/workspace",
+
+  "settings": {
+    "python.defaultInterpreterPath": "/opt/venv/bin/python",
+    "terminal.integrated.defaultProfile.linux": "bash"
+  },
+
+  "extensions": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-toolsai.jupyter",
+    "ms-azuretools.vscode-docker",
+    "eamodio.gitlens"
+  ],
+
+  "postCreateCommand": "python --version && uv --version",
+
+  "remoteUser": "root"
+}
