@@ -156,9 +156,9 @@ Examples of input data. Note that we cannot make the raw data public according t
 
 ### Data
 
-**For Educational/Testing Purposes**: This repository includes synthetic legal case data in the `data/` directory that simulates the structure of COLIEE dataset:
+**For Academic Purposes**: This repository includes synthetic legal case data in the `data/` directory that simulates the structure of COLIEE dataset:
 
-- 30 paragraph pairs for training (balanced positive/negative examples)
+- 34 paragraph pairs for training (balanced positive/negative examples)
 - 6 paragraph pairs for validation
 - 10 multi-paragraph documents for testing
 - Realistic legal content covering various topics (contracts, constitutional law, civil procedure, etc.)
