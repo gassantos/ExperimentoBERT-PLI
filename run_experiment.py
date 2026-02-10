@@ -12,6 +12,10 @@ from utils.util import get_torch_device
 import torch
 import psutil
 
+# Desabilita otimizações do oneDNN para garantir consistência nas medições de desempenho
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+import tensorflow as tf
+
 try:
     from codecarbon import EmissionsTracker
 except ImportError:
@@ -49,6 +53,25 @@ def load_config(path):
     return cfg
 
 
+def get_accelerator_type():
+    # Check for GPU
+    try:
+        if torch.cuda.is_available():
+            return 'GPU'
+    except Exception:
+        pass
+
+    # Check for TPU
+    try:
+        tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
+        tf.config.experimental_connect_to_cluster(tpu)
+        tf.tpu.experimental.initialize_tpu_system(tpu)
+        return 'TPU'
+    except Exception:
+        pass
+    
+    return 'CPU'
+
 def estimate_bert_flops(
     seq_len,
     hidden_size=768,
@@ -63,7 +86,7 @@ def estimate_bert_flops(
     return num_layers * (attention + ffn) / 1e9  # GFLOPs
 
 # info de processamento (CPU/GPU)
-device_type, device_name, device_info = get_torch_device()
+_, device_name, device_info = get_torch_device()
 
 # =========================
 # MAIN WRAPPER
@@ -77,6 +100,7 @@ def execute_experiment(config_path):
     mon =   cfg["monitoring"]
 
     experiment_id = str(uuid.uuid4())
+    device_type = get_accelerator_type()
 
     # Sincroniza o CUDA para garantir que as medições de tempo sejam precisas
     torch.cuda.synchronize() if torch.cuda.is_available() else None
