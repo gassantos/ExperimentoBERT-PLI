@@ -60,7 +60,6 @@ def train(parameters, config, gpu_list):
     step_size = config.getint("train", "step_size")
     gamma = config.getfloat("train", "lr_multiplier")
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
-    exp_lr_scheduler.step(trained_epoch)
 
     logger.info("Training start....")
 
@@ -72,8 +71,6 @@ def train(parameters, config, gpu_list):
     for epoch_num in range(trained_epoch, epoch):
         start_time = timer()
         current_epoch = epoch_num
-
-        exp_lr_scheduler.step(current_epoch)
 
         acc_result = None
         total_loss = 0
@@ -127,4 +124,6 @@ def train(parameters, config, gpu_list):
                                  output_function)
                 if eval_res is None:
                     pass
-
+        
+        # Update learning rate scheduler after epoch
+        exp_lr_scheduler.step()
