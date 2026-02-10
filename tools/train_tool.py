@@ -3,11 +3,17 @@ import os
 import torch
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
+from torch.profiler import profile, ProfilerActivity, record_function
 from tensorboardX import SummaryWriter
 import shutil
 from timeit import default_timer as timer
+import warnings
+import json
 
 from tools.eval_tool import valid, gen_time_str, output_value
+
+# Suppress deprecated warning from pytorch_pretrained_bert
+warnings.filterwarnings('ignore', message='.*This overload of add_ is deprecated.*')
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +53,13 @@ def train(parameters, config, gpu_list):
     global_step = parameters["global_step"]
     output_function = parameters["output_function"]
 
+    # Profiling metrics storage
+    profiling_metrics = {
+        "total_flops": 0,
+        "avg_flops_per_batch": 0,
+        "profiled_batches": 0
+    }
+
     if trained_epoch == 0:
         shutil.rmtree(
             os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")), True)
@@ -77,6 +90,10 @@ def train(parameters, config, gpu_list):
 
         output_info = ""
         step = -1
+        
+        # Profile first 3 batches of first epoch for FLOPs measurement
+        should_profile = (current_epoch == trained_epoch)
+        
         for step, data in enumerate(dataset):
             for key in data.keys():
                 if isinstance(data[key], torch.Tensor):
@@ -87,9 +104,31 @@ def train(parameters, config, gpu_list):
 
             optimizer.zero_grad()
 
-            results = model(data, config, gpu_list, acc_result, "train")
-
-            loss, acc_result = results["loss"], results["acc_result"]
+            # Profile specific batches
+            if should_profile and step < 3:
+                activities = [ProfilerActivity.CPU]
+                if len(gpu_list) > 0 and torch.cuda.is_available():
+                    activities.append(ProfilerActivity.CUDA)
+                
+                with profile(
+                    activities=activities,
+                    record_shapes=True,
+                    with_flops=True
+                ) as prof:
+                    with record_function("model_forward"):
+                        results = model(data, config, gpu_list, acc_result, "train")
+                        loss, acc_result = results["loss"], results["acc_result"]
+                
+                # Extract FLOPs from profiler
+                total_flops = sum([evt.flops for evt in prof.key_averages() if evt.flops > 0])
+                profiling_metrics["total_flops"] += total_flops
+                profiling_metrics["profiled_batches"] += 1
+                
+                logger.info(f"Profiled batch {step}: {total_flops / 1e9:.2f} GFLOPs")
+            else:
+                results = model(data, config, gpu_list, acc_result, "train")
+                loss, acc_result = results["loss"], results["acc_result"]
+            
             total_loss += loss.detach().item()
 
             loss.backward()
@@ -127,3 +166,19 @@ def train(parameters, config, gpu_list):
         
         # Update learning rate scheduler after epoch
         exp_lr_scheduler.step()
+    
+    # Save profiling metrics to file
+    if profiling_metrics["profiled_batches"] > 0:
+        profiling_metrics["avg_flops_per_batch"] = profiling_metrics["total_flops"] / profiling_metrics["profiled_batches"]
+        
+        metrics_path = os.path.join(output_path, "profiling_metrics.json")
+        with open(metrics_path, "w") as f:
+            json.dump({
+                "total_flops": profiling_metrics["total_flops"],
+                "avg_flops_per_batch": profiling_metrics["avg_flops_per_batch"],
+                "profiled_batches": profiling_metrics["profiled_batches"],
+                "total_gflops": profiling_metrics["total_flops"] / 1e9,
+                "avg_gflops_per_batch": profiling_metrics["avg_flops_per_batch"] / 1e9
+            }, f, indent=2)
+        
+        logger.info(f"Profiling complete: {profiling_metrics['avg_flops_per_batch'] / 1e9:.2f} GFLOPs/batch avg")

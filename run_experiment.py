@@ -6,15 +6,27 @@ import uuid
 import os
 import json
 import csv
+import logging
 from datetime import datetime, timezone
 from utils.util import get_torch_device
-
+import torch
 import psutil
 
 try:
     from codecarbon import EmissionsTracker
 except ImportError:
     EmissionsTracker = None
+
+from warnings import filterwarnings
+filterwarnings("ignore", category=UserWarning)
+
+# Setup logging
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    datefmt='%m/%d/%Y %H:%M:%S',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Constantes de diretórios e arquivos
 OUTPUT_DIR = "output/experiments"
@@ -65,7 +77,10 @@ def execute_experiment(config_path):
     mon =   cfg["monitoring"]
 
     experiment_id = str(uuid.uuid4())
-    start_time = time.time()
+
+    # Sincroniza o CUDA para garantir que as medições de tempo sejam precisas
+    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    start_time = time.perf_counter()
     start_iso = now_iso()
     DATE_EXEC = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -112,14 +127,36 @@ def execute_experiment(config_path):
     else:
         energy_kwh = None
 
-    end_time = time.time()
+    # Sincronização CUDA para garantir que todas as operações sejam 
+    # concluídas antes de medir o tempo final
+    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    exec_time = time.perf_counter() - start_time
     end_iso = now_iso()
 
     # -------- METRICS (proxy / external) --------
     avg_ram = sum(ram_samples) / len(ram_samples) if ram_samples else None
     peak_ram = max(ram_samples) if ram_samples else None
 
-    total_gflops = estimate_bert_flops(seq_len=256)
+    # Load profiling metrics if available
+    profiling_path = Path(cfg.get("output", "model_path")) / cfg.get("output", "model_name") / "profiling_metrics.json"
+    total_gflops = 0
+    avg_gflops_per_batch = 0
+    
+    if profiling_path.exists():
+        try:
+            with open(profiling_path, "r") as f:
+                profiling_data = json.load(f)
+                total_gflops = profiling_data.get("total_gflops", 0)
+                avg_gflops_per_batch = profiling_data.get("avg_gflops_per_batch", 0)
+                logger.info(f"Loaded profiling metrics: {avg_gflops_per_batch:.2f} GFLOPs/batch")
+        except Exception as e:
+            logger.warning(f"Could not load profiling metrics: {e}")
+            # Fallback to estimation
+            total_gflops = estimate_bert_flops(seq_len=256)
+    else:
+        # Fallback to estimation if profiling not available
+        logger.warning("Profiling metrics not found, using estimation")
+        total_gflops = estimate_bert_flops(seq_len=256)
 
     # =========================
     # JSON OUTPUT
@@ -152,11 +189,12 @@ def execute_experiment(config_path):
         "hyperparameters": {
             "optimizer": train["optimizer"],
             "learning_rate": float(train["learning_rate"]),
+            "avg_gflops_per_batch": avg_gflops_per_batch,
             "batch_size": int(train["batch_size"]),
             "epoch": int(train["epoch"])
         },
         "resources": {
-            "train_time_sec": end_time - start_time,
+            "train_time_sec": f"{exec_time:.2f}",
             "energy_kwh": energy_kwh,
             "avg_ram_mb": avg_ram,
             "peak_ram_mb": peak_ram,
@@ -194,6 +232,7 @@ def execute_experiment(config_path):
                 "energy_kwh",
                 "avg_ram_mb",
                 "peak_ram_mb",
+                "avg_gflops_per_batch",
                 "total_gflops",
                 "status",
                 "timestamp"
@@ -208,16 +247,17 @@ def execute_experiment(config_path):
             train["learning_rate"],
             train["batch_size"],
             train["epoch"],
-            end_time - start_time,
+            f"{exec_time:.2f}",
             energy_kwh,
             avg_ram,
             peak_ram,
+            avg_gflops_per_batch,            
             total_gflops,
             status,
             end_iso
         ])
 
-    print(f"[OK] Wrapper finalizou: {exp['name']} ({status})")
+    print(f"[OK] Wrapper finalizou em {exec_time:.2f} segundos - {exp['name']} ({status})")
 
 
 # =========================
