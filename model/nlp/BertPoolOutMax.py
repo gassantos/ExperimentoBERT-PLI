@@ -4,7 +4,6 @@ __author__ = 'yshao'
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from pytorch_pretrained_bert import BertModel
 import logging
 logger = logging.getLogger(__name__)

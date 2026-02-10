@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 __author__ = 'yshao'
 
-import json
 import torch
-import os
 
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 

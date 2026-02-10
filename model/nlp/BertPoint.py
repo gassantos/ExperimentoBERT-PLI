@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 __author__ = 'yshao'
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from pytorch_pretrained_bert import BertModel
 
 from tools.accuracy_init import init_accuracy_function
