@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from utils.util import get_torch_device
 import torch
 import psutil
+from utils.util import print_system_info
 
 # Desabilita otimizações do oneDNN para garantir consistência nas medições de desempenho
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
@@ -37,8 +38,6 @@ OUTPUT_DIR = "output/experiments"
 METRICS_DIR = "output/experiments/metrics"
 Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 Path(METRICS_DIR).mkdir(parents=True, exist_ok=True)
-CSV_PATH = Path(METRICS_DIR) / "experiment_summary.csv"
-
 
 # =========================
 # UTILS
@@ -85,6 +84,9 @@ def estimate_bert_flops(
     ffn = 8 * seq_len * hidden_size * hidden_size
     return num_layers * (attention + ffn) / 1e9  # GFLOPs
 
+# Exibe informações do sistema para o experimento
+print_system_info()
+
 # info de processamento (CPU/GPU)
 _, device_name, device_info = get_torch_device()
 
@@ -114,7 +116,8 @@ def execute_experiment(config_path):
         tracker = EmissionsTracker(
             project_name=exp["name"],
             output_dir=METRICS_DIR,
-            log_level="error"
+            log_level="error",
+            output_file=f"EmissionsCO2_{device_type}_{datetime.now().strftime('%Y%m%d')}.csv"
         )
         tracker.start()
 
@@ -146,10 +149,17 @@ def execute_experiment(config_path):
 
     status = "success" if process.returncode == 0 else "failed"
 
+    # -------- STOP ENERGY TRACKER --------
+    emissions_kg = None
+    energy_kwh = None
+    
     if tracker:
-        energy_kwh = tracker.stop()
-    else:
-        energy_kwh = None
+        emissions_kg = tracker.stop()  # Retorna kg de CO2
+        # Acessa os dados finais para obter energia em kWh
+        if hasattr(tracker, 'final_emissions_data'):
+            energy_kwh = tracker.final_emissions_data.energy_consumed  # kWh
+        elif hasattr(tracker, '_total_energy'):
+            energy_kwh = tracker._total_energy.kWh
 
     # Sincronização CUDA para garantir que todas as operações sejam 
     # concluídas antes de medir o tempo final
@@ -220,6 +230,7 @@ def execute_experiment(config_path):
         "resources": {
             "train_time_sec": f"{exec_time:.2f}",
             "energy_kwh": energy_kwh,
+            "emissions_kg_co2": emissions_kg,
             "avg_ram_mb": avg_ram,
             "peak_ram_mb": peak_ram,
             "total_gflops": total_gflops
@@ -237,6 +248,8 @@ def execute_experiment(config_path):
     # =========================
     # CSV AGGREGATION
     # =========================
+    csv_filename = f"experiment_summary_{datetime.now().strftime('%Y%m%d')}.csv"
+    CSV_PATH = Path(METRICS_DIR) / csv_filename
     write_header = not os.path.exists(CSV_PATH)
 
     with open(CSV_PATH, "a", newline="") as f:
@@ -254,6 +267,7 @@ def execute_experiment(config_path):
                 "epoch",
                 "train_time_sec",
                 "energy_kwh",
+                "emissions_kg",
                 "avg_ram_mb",
                 "peak_ram_mb",
                 "avg_gflops_per_batch",
@@ -273,6 +287,7 @@ def execute_experiment(config_path):
             train["epoch"],
             f"{exec_time:.2f}",
             energy_kwh,
+            emissions_kg,
             avg_ram,
             peak_ram,
             avg_gflops_per_batch,            

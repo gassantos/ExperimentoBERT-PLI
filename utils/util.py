@@ -117,31 +117,31 @@ def print_system_info():
     info = collect_system_info()
     
     print("=" * 50)
-    print(f"System Information - {info['timestamp']}")
+    print(f"Informações dos Recursos - {info['timestamp']}")
     print("=" * 50)
     
-    print("\n[CPU Information]")
+    print("\n[Processamento CPU]")
     for key, value in info['cpu'].items():
         print(f"  {key}: {value}")
     
-    print("\n[RAM Information]")
+    print("\n[Memória RAM]")
     for key, value in info['ram'].items():
         print(f"  {key}: {value}")
     
-    print("\n[GPU Information]")
-    print(f"  CUDA Available: {info['gpu']['cuda_available']}")
-    print(f"  GPU Count: {info['gpu']['gpu_count']}")
+    print("\n[Gráfico GPU]")
+    print(f"  CUDA Disponível: {info['gpu']['cuda_available']}")
+    print(f"  Qtd. GPU: {info['gpu']['gpu_count']}")
     for gpu in info['gpu']['gpus']:
         print(f"\n  GPU {gpu['id']}:")
         for key, value in gpu.items():
             if key != 'id':
                 print(f"    {key}: {value}")
     
-    print("\n[Device Information]")
+    print("\n[Informação de Máquina]")
     for key, value in info['device'].items():
         print(f"  {key}: {value}")
     
-    print("\n[PyTorch Device]")
+    print("\n[Configuração PyTorch]")
     for key, value in info['torch_device'].items():
         if key != 'device':
             print(f"  {key}: {value}")
