@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import statistics
 
+from utils.paths import PathManager
+
 logger = logging.getLogger(__name__)
 
 # Diretórios
-GRID_OUTPUT_DIR = Path("output/experiments/grid_search")
+GRID_OUTPUT_DIR = PathManager.EXPERIMENTS_DIR / "grid_search"
 GRID_RESULTS_FILE = GRID_OUTPUT_DIR / "grid_search_results.json"
 ANALYSIS_DIR = GRID_OUTPUT_DIR / "analysis"
 

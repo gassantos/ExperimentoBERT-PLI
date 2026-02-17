@@ -12,7 +12,8 @@ Data: 2026-02-15
 import psutil
 import logging
 from typing import Tuple
-from pathlib import Path
+
+from utils.paths import PathManager
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def check_memory_availability(parallel: int, batch_size: int = 16) -> Tuple[bool
     
     if available_gb < safe_threshold:
         message = (
-            f"⚠️  AVISO DE MEMÓRIA:\n"
+            f"AVISO DE MEMÓRIA:\n"
             f"  RAM Total: {total_gb:.1f} GB\n"
             f"  RAM Disponível: {available_gb:.1f} GB\n"
             f"  RAM Necessária (estimada): {required_gb:.1f} GB\n"
@@ -89,7 +90,7 @@ def check_memory_availability(parallel: int, batch_size: int = 16) -> Tuple[bool
         return False, message
     else:
         message = (
-            f"✓ Memória disponível suficiente:\n"
+            f"Memória disponível suficiente:\n"
             f"  RAM Disponível: {available_gb:.1f} GB\n"
             f"  RAM Necessária: {required_gb:.1f} GB\n"
             f"  Margem: {available_gb - required_gb:.1f} GB"
@@ -218,12 +219,12 @@ def create_experiment_name(params: dict, idx: int, base_name: str = "grid") -> s
 def ensure_output_directories():
     """Cria diretórios de saída necessários."""
     dirs = [
-        "output/experiments/grid_search",
-        "output/experiments/grid_search/configs",
-        "output/experiments/grid_search/analysis",
-        "output/experiments/metrics"
+        PathManager.EXPERIMENTS_DIR / "grid_search",
+        PathManager.EXPERIMENTS_DIR / "grid_search" / "configs",
+        PathManager.EXPERIMENTS_DIR / "grid_search" / "analysis",
+        PathManager.EXPERIMENTS_DIR / "metrics"
     ]
     
     for dir_path in dirs:
-        Path(dir_path).mkdir(parents=True, exist_ok=True)
+        PathManager.ensure_dir(dir_path)
         logger.debug(f"Diretório criado/verificado: {dir_path}")

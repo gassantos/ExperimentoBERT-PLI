@@ -24,37 +24,41 @@ import os
 import sys
 import configparser
 import itertools
-from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from run_experiment import execute_experiment
+from utils.paths import PathManager
 from .utils import (
     check_memory_availability,
     filter_grid_config,
     ensure_output_directories
 )
 
+_TDATE = datetime.now().strftime("%Y-%m-%d")
+_LOGFILE = PathManager.LOGS_DIR / f"grid_search_{_TDATE}.log"
+
 # Configuração de logging
 logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
+    format="%(asctime)s - %(levelname)s - [%(name)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
     level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('grid_search.log', mode='a')
+        logging.FileHandler(_LOGFILE, mode='a')
     ]
 )
 logger = logging.getLogger(__name__)
 
+
 # Diretórios
-GRID_OUTPUT_DIR = Path("output/experiments/grid_search")
+GRID_OUTPUT_DIR = PathManager.EXPERIMENTS_DIR / "grid_search"
 GRID_CONFIGS_DIR = GRID_OUTPUT_DIR / "configs"
-GRID_STATE_FILE = GRID_OUTPUT_DIR / "grid_search_state.json"
-GRID_RESULTS_FILE = GRID_OUTPUT_DIR / "grid_search_results.json"
-GRID_SUMMARY_FILE = GRID_OUTPUT_DIR / "grid_search_summary.txt"
+GRID_STATE_FILE = GRID_OUTPUT_DIR / f"grid_search_state_{_TDATE}.json"
+GRID_RESULTS_FILE = GRID_OUTPUT_DIR / f"grid_search_results_{_TDATE}.json"
+GRID_SUMMARY_FILE = GRID_OUTPUT_DIR / f"grid_search_summary_{_TDATE}.txt"
 
 # Criar diretórios
 ensure_output_directories()
@@ -196,7 +200,7 @@ def run_single_experiment(
         execute_experiment(config_path)
         
         # Coleta resultados do arquivo JSON mais recente gerado
-        metrics_dir = Path("output/experiments/metrics")
+        metrics_dir = PathManager.BASE_DIR / "output" / "experiments" / "metrics"
         json_files = sorted(metrics_dir.glob("*.json"), key=os.path.getmtime)
         
         if not json_files:

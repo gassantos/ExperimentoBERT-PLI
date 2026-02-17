@@ -9,6 +9,7 @@ import csv
 import logging
 from datetime import datetime, timezone
 from utils.util import get_torch_device
+from utils.paths import PathManager
 import torch
 import psutil
 from utils.util import print_system_info
@@ -34,10 +35,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constantes de diretórios e arquivos
-OUTPUT_DIR = "output/experiments"
-METRICS_DIR = "output/experiments/metrics"
-Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-Path(METRICS_DIR).mkdir(parents=True, exist_ok=True)
+_METRICS_DIR = PathManager.EXPERIMENTS_DIR / "metrics"
+PathManager.ensure_dir(_METRICS_DIR)
 
 # =========================
 # UTILS
@@ -115,7 +114,7 @@ def execute_experiment(config_path):
     if EmissionsTracker and mon.getboolean("enable_monitoring"):
         tracker = EmissionsTracker(
             project_name=exp["name"],
-            output_dir=METRICS_DIR,
+            output_dir=_METRICS_DIR,
             log_level="error",
             output_file=f"EmissionsCO2_{device_type}_{datetime.now().strftime('%Y%m%d')}.csv"
         )
@@ -241,7 +240,7 @@ def execute_experiment(config_path):
         }
     }
 
-    json_path = os.path.join(METRICS_DIR, json_filename)
+    json_path = _METRICS_DIR / json_filename
     with open(json_path, "w") as f:
         json.dump(result, f, indent=2)
 
@@ -249,8 +248,8 @@ def execute_experiment(config_path):
     # CSV AGGREGATION
     # =========================
     csv_filename = f"experiment_summary_{datetime.now().strftime('%Y%m%d')}.csv"
-    CSV_PATH = Path(METRICS_DIR) / csv_filename
-    write_header = not os.path.exists(CSV_PATH)
+    CSV_PATH = _METRICS_DIR / csv_filename
+    write_header = not CSV_PATH.exists()
 
     with open(CSV_PATH, "a", newline="") as f:
         writer = csv.writer(f)
