@@ -1,6 +1,6 @@
 import logging
-import os
 import torch
+from pathlib import Path
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torch.profiler import profile, ProfilerActivity, record_function
@@ -11,6 +11,7 @@ import warnings
 import json
 
 from tools.eval_tool import valid, gen_time_str, output_value
+from utils.paths import PathManager
 
 # Suppress deprecated warning from pytorch_pretrained_bert
 warnings.filterwarnings('ignore', message='.*This overload of add_ is deprecated.*')
@@ -41,10 +42,10 @@ def train(parameters, config, gpu_list):
     output_time = config.getint("output", "output_time")
     test_time = config.getint("output", "test_time")
 
-    output_path = os.path.join(config.get("output", "model_path"), config.get("output", "model_name"))
-    if os.path.exists(output_path):
+    output_path = Path(config.get("output", "model_path")) / config.get("output", "model_name")
+    if output_path.exists():
         logger.warning("Output path exists, check whether need to change a name of model")
-    os.makedirs(output_path, exist_ok=True)
+    PathManager.ensure_dir(output_path)
 
     trained_epoch = parameters["trained_epoch"] + 1
     model = parameters["model"]
@@ -60,15 +61,14 @@ def train(parameters, config, gpu_list):
         "profiled_batches": 0
     }
 
+    tensorboard_path = Path(config.get("output", "tensorboard_path")) / config.get("output", "model_name")
+    
     if trained_epoch == 0:
-        shutil.rmtree(
-            os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")), True)
+        shutil.rmtree(tensorboard_path, ignore_errors=True)
 
-    os.makedirs(os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")),
-                exist_ok=True)
+    PathManager.ensure_dir(tensorboard_path)
 
-    writer = SummaryWriter(os.path.join(config.get("output", "tensorboard_path"), config.get("output", "model_name")),
-                           config.get("output", "model_name"))
+    writer = SummaryWriter(str(tensorboard_path), config.get("output", "model_name"))
 
     step_size = config.getint("train", "step_size")
     gamma = config.getfloat("train", "lr_multiplier")
@@ -152,7 +152,7 @@ def train(parameters, config, gpu_list):
             gen_time_str(timer() - start_time), gen_time_str((timer() - start_time) * (total_len - step - 1) / (step + 1))),
                     "%.3lf" % (total_loss / (step + 1)), output_info, None, config)
 
-        checkpoint(os.path.join(output_path, "%d.pkl" % current_epoch), model, optimizer, current_epoch, config,
+        checkpoint(str(output_path / f"{current_epoch}.pkl"), model, optimizer, current_epoch, config,
                    global_step)
         writer.add_scalar(config.get("output", "model_name") + "_train_epoch", float(total_loss) / (step + 1),
                           current_epoch)
@@ -171,7 +171,7 @@ def train(parameters, config, gpu_list):
     if profiling_metrics["profiled_batches"] > 0:
         profiling_metrics["avg_flops_per_batch"] = profiling_metrics["total_flops"] / profiling_metrics["profiled_batches"]
         
-        metrics_path = os.path.join(output_path, "profiling_metrics.json")
+        metrics_path = output_path / "profiling_metrics.json"
         with open(metrics_path, "w") as f:
             json.dump({
                 "total_flops": profiling_metrics["total_flops"],

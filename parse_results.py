@@ -1,8 +1,8 @@
 import json
-import os
 from pathlib import Path
 
 import torch
+from utils.paths import PathManager
 
 def parse_gru_results(input_file, output_file):
     """
@@ -13,7 +13,8 @@ def parse_gru_results(input_file, output_file):
         output_file: Path to the output JSON file to create
     """
     # Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    output_path = Path(output_file)
+    PathManager.ensure_dir(output_path.parent)
     
     # Read the input file
     with open(input_file, 'r') as f:
@@ -56,7 +57,8 @@ def parse_gru_results(input_file, output_file):
         result[key] = sorted(list(set(result[key])))
     
     # Create output directory if it doesn't exist
-    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(output_file)
+    PathManager.ensure_dir(output_path.parent)
     
     # Write the result to output file
     with open(output_file, 'w') as f:
