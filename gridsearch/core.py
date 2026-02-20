@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import sys
+# import multiprocessing
 import configparser
 import itertools
 from datetime import datetime
@@ -29,7 +30,13 @@ from typing import Dict, List, Any
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from run_experiment import execute_experiment
+# Configuração crítica: usar 'spawn' para compatibilidade com CUDA
+# DEVE ser definido antes de qualquer uso de multiprocessing
+# try:
+#     multiprocessing.set_start_method('spawn', force=True)
+# except RuntimeError:
+#     pass
+
 from utils.paths import PathManager
 from .utils import (
     check_memory_availability,
@@ -59,6 +66,10 @@ GRID_CONFIGS_DIR = GRID_OUTPUT_DIR / "configs"
 GRID_STATE_FILE = GRID_OUTPUT_DIR / f"grid_search_state_{_TDATE}.json"
 GRID_RESULTS_FILE = GRID_OUTPUT_DIR / f"grid_search_results_{_TDATE}.json"
 GRID_SUMMARY_FILE = GRID_OUTPUT_DIR / f"grid_search_summary_{_TDATE}.txt"
+
+# Configurações de custo
+# Tarifa média de energia em USD/kWh (pode ser configurada via variável de ambiente)
+ENERGY_COST_USD_PER_KWH = float(os.getenv("ENERGY_COST_USD_PER_KWH", "0.12"))
 
 # Criar diretórios
 ensure_output_directories()
@@ -193,6 +204,9 @@ def run_single_experiment(
     Returns:
         Dicionário com resultados do experimento
     """
+    # Import lazy para evitar inicialização de CUDA no processo principal
+    from run_experiment import execute_experiment
+    
     logger.info(f"[{experiment_idx}] Iniciando experimento com parâmetros: {params}")
     
     try:
@@ -350,13 +364,25 @@ def save_state(completed_experiments: set, results: List[Dict[str, Any]]):
 
 def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Analisa resultados e identifica as melhores configurações.
+    Analisa resultados e identifica as melhores configurações por múltiplos critérios.
+    
+    Critérios de análise:
+        - Tempo de treinamento (train_time_sec)
+        - Eficiência energética (energy_kwh)
+        - Uso de memória RAM (peak_ram_mb)
+        - Emissão de carbono (emissions_kg_co2)
+        - Custo financeiro (cost_usd, calculado a partir de energy_kwh)
     
     Args:
         results: Lista com resultados de todos os experimentos
         
     Returns:
-        Dicionário com análise dos resultados
+        Dicionário com análise dos resultados incluindo:
+        - best_by_time: Melhor configuração por tempo
+        - best_by_energy: Melhor configuração por energia
+        - best_by_ram: Melhor configuração por memória
+        - best_by_carbon: Melhor configuração por emissão de CO2
+        - best_by_cost: Melhor configuração por custo financeiro
     """
     logger.info("Analisando resultados...")
     
@@ -396,11 +422,34 @@ def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         if x.get("resources", {}).get("peak_ram_mb") is not None else float('inf')
     )
     
+    # Ordena por emissão de CO2 (menor é melhor)
+    sorted_by_carbon = sorted(
+        successful,
+        key=lambda x: float(x.get("resources", {}).get("emissions_kg_co2", float('inf')))
+        if x.get("resources", {}).get("emissions_kg_co2") is not None else float('inf')
+    )
+    
+    # Calcula custo financeiro e ordena (menor é melhor)
+    for result in successful:
+        energy_kwh = result.get("resources", {}).get("energy_kwh")
+        if energy_kwh is not None:
+            cost_usd = float(energy_kwh) * ENERGY_COST_USD_PER_KWH
+            result["resources"]["cost_usd"] = cost_usd
+        else:
+            result["resources"]["cost_usd"] = None
+    
+    sorted_by_cost = sorted(
+        successful,
+        key=lambda x: float(x.get("resources", {}).get("cost_usd", float('inf')))
+        if x.get("resources", {}).get("cost_usd") is not None else float('inf')
+    )
+    
     analysis = {
         "timestamp": datetime.now().isoformat(),
         "total_experiments": len(results),
         "successful": len(successful),
         "failed": len(failed),
+        "energy_cost_usd_per_kwh": ENERGY_COST_USD_PER_KWH,
         
         "best_by_time": {
             "experiment_idx": sorted_by_time[0]["grid_experiment_idx"],
@@ -419,6 +468,18 @@ def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "params": sorted_by_ram[0]["grid_params"],
             "peak_ram_mb": sorted_by_ram[0]["resources"].get("peak_ram_mb")
         } if sorted_by_ram and sorted_by_ram[0]["resources"].get("peak_ram_mb") else None,
+        
+        "best_by_carbon": {
+            "experiment_idx": sorted_by_carbon[0]["grid_experiment_idx"],
+            "params": sorted_by_carbon[0]["grid_params"],
+            "emissions_kg_co2": sorted_by_carbon[0]["resources"].get("emissions_kg_co2")
+        } if sorted_by_carbon and sorted_by_carbon[0]["resources"].get("emissions_kg_co2") else None,
+        
+        "best_by_cost": {
+            "experiment_idx": sorted_by_cost[0]["grid_experiment_idx"],
+            "params": sorted_by_cost[0]["grid_params"],
+            "cost_usd": sorted_by_cost[0]["resources"].get("cost_usd")
+        } if sorted_by_cost and sorted_by_cost[0]["resources"].get("cost_usd") else None,
         
         "all_results": results
     }
@@ -479,7 +540,71 @@ def generate_summary_report(analysis: Dict[str, Any]) -> str:
             report.append(f"    - {k}: {v}")
         report.append("")
     
+    if analysis.get("best_by_carbon"):
+        report.append("MELHOR CONFIGURAÇÃO (Menor Emissão de Carbono):")
+        best = analysis["best_by_carbon"]
+        report.append(f"  Experimento: {best['experiment_idx']}")
+        report.append(f"  Emissão CO2: {best['emissions_kg_co2']:.6f} kg")
+        report.append("  Parâmetros:")
+        for k, v in best["params"].items():
+            report.append(f"    - {k}: {v}")
+        report.append("")
+    
+    if analysis.get("best_by_cost"):
+        report.append("MELHOR CONFIGURAÇÃO (Menor Custo Financeiro):")
+        best = analysis["best_by_cost"]
+        report.append(f"  Experimento: {best['experiment_idx']}")
+        report.append(f"  Custo: ${best['cost_usd']:.4f} USD")
+        report.append(f"  (Tarifa: ${analysis['energy_cost_usd_per_kwh']:.4f}/kWh)")
+        report.append("  Parâmetros:")
+        for k, v in best["params"].items():
+            report.append(f"    - {k}: {v}")
+        report.append("")
+    
     report.append("=" * 80)
+    
+    # Adiciona estatísticas gerais
+    if analysis['successful'] > 0:
+        report.append("")
+        report.append("ESTATÍSTICAS GERAIS DOS EXPERIMENTOS BEM-SUCEDIDOS:")
+        report.append("")
+        
+        # Calcula estatísticas agregadas
+        all_successful = [r for r in analysis['all_results'] if r.get('status') == 'success']
+        
+        # Tempo total
+        total_time = sum(
+            float(r.get('resources', {}).get('train_time_sec', 0))
+            for r in all_successful
+        )
+        report.append(f"  Tempo total de treinamento: {total_time:.2f} segundos ({total_time/3600:.2f} horas)")
+        
+        # Energia total
+        total_energy = sum(
+            float(r.get('resources', {}).get('energy_kwh', 0) or 0)
+            for r in all_successful
+        )
+        if total_energy > 0:
+            report.append(f"  Energia total consumida: {total_energy:.4f} kWh")
+        
+        # CO2 total
+        total_co2 = sum(
+            float(r.get('resources', {}).get('emissions_kg_co2', 0) or 0)
+            for r in all_successful
+        )
+        if total_co2 > 0:
+            report.append(f"  Emissão total de CO2: {total_co2:.6f} kg ({total_co2*1000:.2f} g)")
+        
+        # Custo total
+        total_cost = sum(
+            float(r.get('resources', {}).get('cost_usd', 0) or 0)
+            for r in all_successful
+        )
+        if total_cost > 0:
+            report.append(f"  Custo financeiro total: ${total_cost:.4f} USD")
+        
+        report.append("")
+        report.append("=" * 80)
     
     return "\n".join(report)
 
@@ -547,11 +672,28 @@ Exemplos de uso:
     
     # Modo: apenas análise
     if args.analyze_only:
-        if not GRID_RESULTS_FILE.exists():
-            logger.error(f"Arquivo de resultados não encontrado: {GRID_RESULTS_FILE}")
+        # Tenta encontrar o arquivo de resultados: com data de hoje, sem data, ou o mais recente
+        results_file = None
+        if GRID_RESULTS_FILE.exists():
+            results_file = GRID_RESULTS_FILE
+        else:
+            # Fallback 1: arquivo sem data
+            fallback_no_date = GRID_OUTPUT_DIR / "grid_search_results.json"
+            if fallback_no_date.exists():
+                results_file = fallback_no_date
+                logger.warning(f"Arquivo do dia não encontrado. Usando: {results_file}")
+            else:
+                # Fallback 2: arquivo com data mais recente disponível
+                candidates = sorted(GRID_OUTPUT_DIR.glob("grid_search_results_*.json"), reverse=True)
+                if candidates:
+                    results_file = candidates[0]
+                    logger.warning(f"Arquivo do dia não encontrado. Usando o mais recente: {results_file}")
+        
+        if results_file is None:
+            logger.error(f"Nenhum arquivo de resultados encontrado em: {GRID_OUTPUT_DIR}")
             sys.exit(1)
         
-        with open(GRID_RESULTS_FILE, 'r', encoding='utf-8') as f:
+        with open(results_file, 'r', encoding='utf-8') as f:
             results = json.load(f)
         
         analysis = analyze_results(results)
@@ -559,10 +701,16 @@ Exemplos de uso:
         
         print("\n" + report)
         
-        with open(GRID_SUMMARY_FILE, 'w') as f:
+        # Salva com data e também como arquivo canônico sem data
+        with open(GRID_SUMMARY_FILE, 'w', encoding='utf-8') as f:
+            f.write(report)
+        
+        canonical_summary = GRID_OUTPUT_DIR / "grid_search_summary.txt"
+        with open(canonical_summary, 'w', encoding='utf-8') as f:
             f.write(report)
         
         logger.info(f"Relatório salvo em: {GRID_SUMMARY_FILE}")
+        logger.info(f"Relatório canônico salvo em: {canonical_summary}")
         return
     
     # Modo: retomar execução
@@ -615,10 +763,16 @@ Exemplos de uso:
         
         print("\n" + report)
         
-        with open(GRID_SUMMARY_FILE, 'w') as f:
+        # Salva com data e também como arquivo canônico sem data
+        with open(GRID_SUMMARY_FILE, 'w', encoding='utf-8') as f:
+            f.write(report)
+        
+        canonical_summary = GRID_OUTPUT_DIR / "grid_search_summary.txt"
+        with open(canonical_summary, 'w', encoding='utf-8') as f:
             f.write(report)
         
         logger.info(f"Relatório salvo em: {GRID_SUMMARY_FILE}")
+        logger.info(f"Relatório canônico salvo em: {canonical_summary}")
 
 
 if __name__ == "__main__":

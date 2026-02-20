@@ -63,6 +63,13 @@ def compute_descriptive_statistics(results: List[Dict[str, Any]]) -> Dict[str, A
     """
     Computa estatísticas descritivas para todas as métricas.
     
+    Métricas analisadas:
+        - train_time_sec: Tempo de treinamento em segundos
+        - energy_kwh: Consumo de energia em kWh
+        - peak_ram_mb: Uso de memória RAM em MB
+        - emissions_kg_co2: Emissões de CO2 em kg
+        - cost_usd: Custo financeiro em USD
+    
     Args:
         results: Lista de resultados dos experimentos
         
@@ -81,6 +88,8 @@ def compute_descriptive_statistics(results: List[Dict[str, Any]]) -> Dict[str, A
     train_times = []
     energy_values = []
     ram_values = []
+    carbon_values = []
+    cost_values = []
     
     for result in successful:
         resources = result.get("resources", {})
@@ -93,11 +102,19 @@ def compute_descriptive_statistics(results: List[Dict[str, Any]]) -> Dict[str, A
         
         if "peak_ram_mb" in resources and resources["peak_ram_mb"] is not None:
             ram_values.append(float(resources["peak_ram_mb"]))
+        
+        if "emissions_kg_co2" in resources and resources["emissions_kg_co2"] is not None:
+            carbon_values.append(float(resources["emissions_kg_co2"]))
+        
+        if "cost_usd" in resources and resources["cost_usd"] is not None:
+            cost_values.append(float(resources["cost_usd"]))
     
     return {
         "train_time": calculate_statistics(train_times),
         "energy_kwh": calculate_statistics(energy_values),
         "peak_ram_mb": calculate_statistics(ram_values),
+        "emissions_kg_co2": calculate_statistics(carbon_values),
+        "cost_usd": calculate_statistics(cost_values),
         "total_experiments": len(results),
         "successful_experiments": len(successful),
         "failed_experiments": len(results) - len(successful)
@@ -120,6 +137,8 @@ def analyze_by_hyperparameter(
         results: Lista de resultados
         param_name: Nome do hiperparâmetro a analisar
         metric_name: Nome da métrica a medir (padrão: train_time_sec)
+                    Opções: train_time_sec, energy_kwh, peak_ram_mb, 
+                            emissions_kg_co2, cost_usd
         
     Returns:
         Dicionário mapeando valores do hiperparâmetro para estatísticas
@@ -140,7 +159,8 @@ def analyze_by_hyperparameter(
         param_value = params[param_name]
         
         # Extrai valor da métrica
-        if metric_name in ["train_time_sec", "energy_kwh", "peak_ram_mb"]:
+        if metric_name in ["train_time_sec", "energy_kwh", "peak_ram_mb", 
+                          "emissions_kg_co2", "cost_usd"]:
             resources = result.get("resources", {})
             metric_value = resources.get(metric_name)
         else:
@@ -359,6 +379,8 @@ def rank_configurations(
     Args:
         results: Lista de resultados
         metrics: Lista de nomes das métricas (padrão: ["train_time_sec", "energy_kwh"])
+                Opções: train_time_sec, energy_kwh, peak_ram_mb, 
+                       emissions_kg_co2, cost_usd
         weights: Pesos para cada métrica (padrão: igual para todas)
         
     Returns:
@@ -387,7 +409,8 @@ def rank_configurations(
         values = []
         
         for result in successful:
-            if metric in ["train_time_sec", "energy_kwh", "peak_ram_mb"]:
+            if metric in ["train_time_sec", "energy_kwh", "peak_ram_mb", 
+                         "emissions_kg_co2", "cost_usd"]:
                 resources = result.get("resources", {})
                 value = resources.get(metric)
             else:
