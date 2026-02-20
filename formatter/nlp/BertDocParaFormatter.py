@@ -3,7 +3,7 @@ __author__ = 'yshao'
 
 import torch
 
-from pytorch_pretrained_bert.tokenization import BertTokenizer
+from transformers import BertTokenizer
 
 from formatter.Basic import BasicFormatter
 from .bert_feature_tool import example_item_to_feature

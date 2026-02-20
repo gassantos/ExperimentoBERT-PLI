@@ -4,7 +4,7 @@ __author__ = 'yshao'
 
 import torch
 import torch.nn as nn
-from pytorch_pretrained_bert import BertModel
+from transformers import BertModel
 import logging
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,10 @@ class BertPoolOutMax(nn.Module):
                 q_lst = []
                 for i in range(0, self.max_para_q, self.step):
                     # print(input_ids[k, i:i+self.step].view(-1, self.max_len).size())
-                    _, lst = self.bert(input_ids[k, i:i+self.step].view(-1, self.max_len),
-                                       token_type_ids=token_type_ids[k, i:i+self.step].view(-1, self.max_len),
-                                       attention_mask=attention_mask[k, i:i+self.step].view(-1, self.max_len))
+                    _bert_out = self.bert(input_ids[k, i:i+self.step].view(-1, self.max_len),
+                                           token_type_ids=token_type_ids[k, i:i+self.step].view(-1, self.max_len),
+                                           attention_mask=attention_mask[k, i:i+self.step].view(-1, self.max_len))
+                    lst = _bert_out.pooler_output
                     # print('before view', lst.size())
                     lst = lst.view(self.step, self.max_para_c, -1)
                     # print('after view', lst.size())

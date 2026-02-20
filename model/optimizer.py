@@ -1,5 +1,4 @@
 import torch.optim as optim
-from transformers import AdamW
 
 
 def init_optimizer(model, config, *args, **params):
@@ -15,10 +14,10 @@ def init_optimizer(model, config, *args, **params):
         optimizer = optim.SGD(model.parameters(), lr=learning_rate,
                               weight_decay=config.getfloat("train", "weight_decay"))
     elif optimizer_type == "bert_adam":
-        # AdamW do transformers é o sucessor moderno do BertAdam.
+        # torch.optim.AdamW é o sucessor moderno do BertAdam (transformers.AdamW removido na v4.46+).
         # O warmup linear é tratado por get_linear_schedule_with_warmup em train_tool.py.
-        optimizer = AdamW(model.parameters(), lr=learning_rate,
-                          weight_decay=config.getfloat("train", "weight_decay"))
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate,
+                                weight_decay=config.getfloat("train", "weight_decay"))
     else:
         raise NotImplementedError
 

@@ -2,7 +2,7 @@
 __author__ = 'yshao'
 
 import torch.nn as nn
-from pytorch_pretrained_bert import BertModel
+from transformers import BertModel
 
 from tools.accuracy_init import init_accuracy_function
 
@@ -27,8 +27,8 @@ class BertPoint(nn.Module):
 
     def forward(self, data, config, gpu_list, acc_result, mode):
         input_ids, attention_mask, token_type_ids = data['input_ids'], data['attention_mask'], data['token_type_ids']
-        _, y = self.bert(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask,
-                            output_all_encoded_layers=False)
+        outputs = self.bert(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask)
+        y = outputs.pooler_output
         y = y.view(y.size()[0], -1)
         if mode == 'test' and config.getboolean('output', 'pool_out'):
             output = []

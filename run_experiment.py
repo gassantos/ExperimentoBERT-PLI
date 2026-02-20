@@ -14,10 +14,6 @@ import torch
 import psutil
 from utils.util import print_system_info
 
-# Desabilita otimizações do oneDNN para garantir consistência nas medições de desempenho
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-import tensorflow as tf
-
 try:
     from codecarbon import EmissionsTracker
 except ImportError:
@@ -59,15 +55,14 @@ def get_accelerator_type():
     except Exception:
         pass
 
-    # Check for TPU
+    # Check for TPU (torch_xla - PyTorch/XLA para Google Cloud TPU)
     try:
-        tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
-        tf.config.experimental_connect_to_cluster(tpu)
-        tf.tpu.experimental.initialize_tpu_system(tpu)
+        import torch_xla.core.xla_model as xm  # type: ignore
+        xm.xla_device()
         return 'TPU'
     except Exception:
         pass
-    
+
     return 'CPU'
 
 def estimate_bert_flops(

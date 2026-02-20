@@ -2,17 +2,11 @@ import argparse
 import os
 import torch
 import logging
-import warnings
 
 from tools.init_tool import init_all
 from config_parser import create_config
 from tools.train_tool import train
 
-# TODO: Migrar para a biblioteca moderna transformers do HuggingFace
-
-# Suppress deprecated warnings from pytorch_pretrained_bert
-warnings.filterwarnings('ignore', message='.*This overload of add_ is deprecated.*',
-                        category=UserWarning, module='pytorch_pretrained_bert')
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',

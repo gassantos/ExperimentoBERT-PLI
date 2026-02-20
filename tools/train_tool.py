@@ -4,11 +4,10 @@ from pathlib import Path
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torch.profiler import profile, ProfilerActivity, record_function
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from transformers import get_linear_schedule_with_warmup
 import shutil
 from timeit import default_timer as timer
-import warnings
 import json
 
 from tools.eval_tool import valid, gen_time_str, output_value
