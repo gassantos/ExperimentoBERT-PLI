@@ -22,14 +22,10 @@ import logging
 import os
 import torch
 
-from configparser import ConfigParser
 from utils.paths import PathManager  # configura HF_HOME antes de qualquer import transformers
-from config_parser import create_config
+from utils.config import create_config, ConfigParser
 from tools.init_tool import init_all
 from tools.test_tool import test
-
-# Raiz do projeto no sys.path para executar script
-sys.path.insert(0, str(PathManager.get_projectdir()))
 
 # Configura logging
 logging.basicConfig(

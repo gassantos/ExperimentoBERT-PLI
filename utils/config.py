@@ -1,25 +1,26 @@
+"""
+utils/config.py — Parser de configuração hierárquico
+======================================================
+Envolve o ``configparser.RawConfigParser`` da stdlib com suporte a três
+camadas de configuração (fallback em cascata):
+
+1. ``config/default.config`` — valores base do projeto
+2. ``config/default_local.config`` — overrides locais (se existir)
+3. Arquivo de experimento passado pelo usuário — overrides finais
+"""
+
 import configparser
-import os
 import functools
+import os
 
 
 class ConfigParser:
     """
-    A configuration parser that manages multiple configuration files with support for default and local configurations.
-    This class wraps Python's `configparser.RawConfigParser` to handle three levels of configuration:
-    - **default**: Base configuration loaded from `config/default.config`.
-    - **local**: Overrides loaded from `config/default_local.config` if it exists, otherwise falls back to `config/default.config`.
-    - **custom**: Additional configuration loaded from user-specified files.
-    Args:
-        *args: Positional arguments passed to `configparser.RawConfigParser`.
-        **params: Keyword arguments passed to `configparser.RawConfigParser`.
-    Methods:
-        read(filenames, encoding=None):
-            Reads configuration files into their respective parsers.
-            Args:
-                filenames (str | list): Path(s) to the custom configuration file(s).
-                encoding (str, optional): Encoding used to read the files. Defaults to None.
-    """    
+    Parser de configuração com fallback em cascata.
+
+    Resolve cada chave na ordem: config do experimento → local → default.
+    """
+
     def __init__(self, *args, **params):
         self.default_config = configparser.RawConfigParser(*args, **params)
         self.local_config = configparser.RawConfigParser(*args, **params)
@@ -50,11 +51,20 @@ def _build_func(func_name):
 
 
 def create_config(path: str) -> ConfigParser:
+    """
+    Instancia e retorna um :class:`ConfigParser` carregado com o arquivo
+    de configuração especificado.
+
+    Args:
+        path: Caminho para o arquivo ``.config`` do experimento.
+
+    Returns:
+        Instância de :class:`ConfigParser` pronta para uso.
+    """
     for func_name in dir(configparser.RawConfigParser):
-        if not func_name.startswith('_') and func_name != "read":
+        if not func_name.startswith("_") and func_name != "read":
             setattr(ConfigParser, func_name, _build_func(func_name))
 
     config = ConfigParser()
     config.read(path)
-
     return config

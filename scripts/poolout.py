@@ -24,7 +24,7 @@ import os
 import torch
 
 from utils.paths import PathManager  # configura HF_HOME antes de qualquer import transformers
-from config_parser import create_config
+from utils.config import create_config
 from tools.init_tool import init_all
 from tools.poolout_tool import pool_out
 
