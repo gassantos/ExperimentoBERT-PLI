@@ -3,13 +3,34 @@ name = "experimentobert-pli"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
     "codecarbon>=3.2.2",
     "numpy>=2.2.6",
     "psutil>=7.2.2",
-    "pytorch-pretrained-bert>=0.6.2",
-    "tensorboardx>=2.6.4",
-    "tensorflow>=2.20.0",
+    "tensorboard>=2.14",
+    "torch>=2.9.1",
+    "torchaudio>=2.4.0",
+    "torchvision>=0.24.1",
     "tqdm>=4.67.1",
 ]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
