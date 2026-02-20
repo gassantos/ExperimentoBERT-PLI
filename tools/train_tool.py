@@ -5,6 +5,7 @@ from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torch.profiler import profile, ProfilerActivity, record_function
 from tensorboardX import SummaryWriter
+from transformers import get_linear_schedule_with_warmup
 import shutil
 from timeit import default_timer as timer
 import warnings
@@ -13,13 +14,10 @@ import json
 from tools.eval_tool import valid, gen_time_str, output_value
 from utils.paths import PathManager
 
-# Suppress deprecated warning from pytorch_pretrained_bert
-warnings.filterwarnings('ignore', message='.*This overload of add_ is deprecated.*')
-
 logger = logging.getLogger(__name__)
 
 
-def checkpoint(filename, model, optimizer, trained_epoch, config, global_step):
+def checkpoint(filename, model, optimizer, trained_epoch, config, global_step, warmup_scheduler=None):
     model_to_save = model.module if hasattr(model, 'module') else model
     save_params = {
         "model": model_to_save.state_dict(),
@@ -28,6 +26,8 @@ def checkpoint(filename, model, optimizer, trained_epoch, config, global_step):
         "trained_epoch": trained_epoch,
         "global_step": global_step
     }
+    if warmup_scheduler is not None:
+        save_params["warmup_scheduler"] = warmup_scheduler.state_dict()
 
     try:
         torch.save(save_params, filename)
@@ -73,6 +73,25 @@ def train(parameters, config, gpu_list):
     step_size = config.getint("train", "step_size")
     gamma = config.getfloat("train", "lr_multiplier")
     exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+
+    # Scheduler linear com warmup para bert_adam (substitui o StepLR nesse caso)
+    warmup_scheduler = None
+    optimizer_type = config.get("train", "optimizer")
+    if optimizer_type == "bert_adam":
+        total_steps = len(dataset) * (epoch - (parameters["trained_epoch"] + 1))
+        num_warmup_steps = int(config.getfloat("train", "warmup_ratio") * total_steps)
+        warmup_scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=total_steps
+        )
+        if "warmup_scheduler_state" in parameters:
+            warmup_scheduler.load_state_dict(parameters["warmup_scheduler_state"])
+            logger.info("Warmup scheduler state restored from checkpoint.")
+        logger.info(
+            "Warmup scheduler criado: total_steps=%d, warmup_steps=%d",
+            total_steps, num_warmup_steps
+        )
 
     logger.info("Training start....")
 
@@ -133,6 +152,8 @@ def train(parameters, config, gpu_list):
 
             loss.backward()
             optimizer.step()
+            if warmup_scheduler is not None:
+                warmup_scheduler.step()
 
             if step % output_time == 0:
                 output_info = output_function(acc_result, config)
@@ -153,7 +174,7 @@ def train(parameters, config, gpu_list):
                     "%.3lf" % (total_loss / (step + 1)), output_info, None, config)
 
         checkpoint(str(output_path / f"{current_epoch}.pkl"), model, optimizer, current_epoch, config,
-                   global_step)
+                   global_step, warmup_scheduler=warmup_scheduler)
         writer.add_scalar(config.get("output", "model_name") + "_train_epoch", float(total_loss) / (step + 1),
                           current_epoch)
 
@@ -163,9 +184,10 @@ def train(parameters, config, gpu_list):
                                  output_function)
                 if eval_res is None:
                     pass
-        
-        # Update learning rate scheduler after epoch
-        exp_lr_scheduler.step()
+
+        # StepLR só atua quando não há warmup scheduler (outros otimizadores)
+        if warmup_scheduler is None:
+            exp_lr_scheduler.step()
     
     # Save profiling metrics to file
     if profiling_metrics["profiled_batches"] > 0:
