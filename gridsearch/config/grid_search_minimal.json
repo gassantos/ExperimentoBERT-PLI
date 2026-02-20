@@ -5,9 +5,9 @@
   "parallel_workers": 1,
   
   "hyperparameters": {
-    "learning_rate": [2e-5],
+    "learning_rate": [1e-5],
     "batch_size": [8],
-    "optimizer": ["adam"]
+    "optimizer": ["adam", "adamw", "bert_adam"]
   },
   
   "notes": [

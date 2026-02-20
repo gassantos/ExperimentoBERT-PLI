@@ -7,7 +7,7 @@
   "hyperparameters": {
     "learning_rate": [1e-5, 2e-5, 3e-5, 5e-5],
     "batch_size": [8, 16, 32],
-    "optimizer": ["adam", "adamw", "sgd", "bertadam"],
+    "optimizer": ["adam", "adamw", "sgd", "bert_adam"],
     "dropout": [0.1, 0.2, 0.3],
     "seed": [42, 123, 456]
   },
