@@ -1,8 +1,7 @@
 import logging
 import torch
-import os
 
-from reader.reader import init_dataset, init_formatter, init_test_dataset
+from utils.reader import init_dataset, init_formatter, init_test_dataset
 from model import get_model
 from model.optimizer import init_optimizer
 from .output_init import init_output_function
