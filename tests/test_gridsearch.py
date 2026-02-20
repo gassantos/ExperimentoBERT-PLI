@@ -7,80 +7,82 @@ import sys
 import json
 from pathlib import Path
 
-print("=" * 70)
-print("TESTES DO MÓDULO GRIDSEARCH")
-print("=" * 70)
+def _run_manual_gridsearch_tests():
+    print("=" * 70)
+    print("TESTES DO MÓDULO GRIDSEARCH")
+    print("=" * 70)
 
-# Teste 1: Importação
-print("\n[1/6] Teste de Importação...")
-try:
-    from gridsearch import (
-        run_grid_search,
-        generate_parameter_grid,
-        analyze_results
-    )
-    from gridsearch.utils import (
-        check_memory_availability,
-        estimate_memory_requirements,
-        filter_grid_config
-    )
-    from gridsearch.analysis import (
-        compute_descriptive_statistics,
-        analyze_correlations,
-        rank_configurations
-    )
-    print("✓ Todas as importações bem-sucedidas")
-except Exception as e:
-    print(f"✗ Erro na importação: {e}")
-    sys.exit(1)
-
-# Teste 2: Geração de combinações
-print("\n[2/6] Teste de Geração de Combinações...")
-try:
-    test_grid = {
-        "learning_rate": [1e-5, 2e-5],
-        "batch_size": [8, 16]
-    }
-    
-    combinations = generate_parameter_grid(test_grid)
-    
-    expected_count = 4  # 2 x 2
-    actual_count = len(combinations)
-    
-    if actual_count == expected_count:
-        print(f"✓ Geradas {actual_count} combinações (esperado: {expected_count})")
-        print(f"  Exemplo: {combinations[0]}")
-    else:
-        print(f"✗ Erro: {actual_count} combinações (esperado: {expected_count})")
+    # Teste 1: Importação
+    print("\n[1/6] Teste de Importação...")
+    try:
+        from gridsearch import (
+            run_grid_search,
+            generate_parameter_grid,
+            analyze_results
+        )
+        from gridsearch.utils import (
+            check_memory_availability,
+            estimate_memory_requirements,
+            filter_grid_config
+        )
+        from gridsearch.analysis import (
+            compute_descriptive_statistics,
+            analyze_correlations,
+            rank_configurations
+        )
+        print("✓ Todas as importações bem-sucedidas")
+    except Exception as e:
+        print(f"✗ Erro na importação: {e}")
         sys.exit(1)
-except Exception as e:
-    print(f"✗ Erro na geração: {e}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
 
-# Teste 3: Validação de Memória
-print("\n[3/6] Teste de Validação de Memória...")
-try:
-    # Teste com configuração segura
-    is_safe, message = check_memory_availability(
-        parallel=2,
-        batch_size=16
-    )
-    
-    print(f"✓ Validação executada")
-    print(f"  Resultado: {'SEGURO' if is_safe else 'INSEGURO'}")
-    print(f"  Mensagem:\n{message}")
-    
-    # Teste de estimativa
-    estimated_gb = estimate_memory_requirements(
-        parallel=2,
-        batch_size=16
-    )
-    
-    print(f"✓ Estimativa: {estimated_gb:.2f} GB necessários")
-    
-except Exception as e:
+    # Teste 2: Geração de combinações
+    print("\n[2/6] Teste de Geração de Combinações...")
+    try:
+        test_grid = {
+            "learning_rate": [1e-5, 2e-5],
+            "batch_size": [8, 16]
+        }
+
+        combinations = generate_parameter_grid(test_grid)
+
+        expected_count = 4  # 2 x 2
+        actual_count = len(combinations)
+
+        if actual_count == expected_count:
+            print(f"✓ Geradas {actual_count} combinações (esperado: {expected_count})")
+            print(f"  Exemplo: {combinations[0]}")
+        else:
+            print(f"✗ Erro: {actual_count} combinações (esperado: {expected_count})")
+            sys.exit(1)
+    except Exception as e:
+        print(f"✗ Erro na geração: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    # Teste 3: Validação de Memória
+    print("\n[3/6] Teste de Validação de Memória...")
+    try:
+        # Teste com configuração segura
+        is_safe, message = check_memory_availability(
+            parallel=2,
+            batch_size=16
+        )
+
+        print(f"✓ Validação executada")
+        print(f"  Resultado: {'SEGURO' if is_safe else 'INSEGURO'}")
+        print(f"  Mensagem:\n{message}")
+
+        # Teste de estimativa
+        estimated_gb = estimate_memory_requirements(
+            parallel=2,
+            batch_size=16
+        )
+
+        print(f"✓ Estimativa: {estimated_gb:.2f} GB necessários")
+
+if __name__ == "__main__":
+    _run_manual_gridsearch_tests()
     print(f"✗ Erro na validação: {e}")
     import traceback
     traceback.print_exc()
