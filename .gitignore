@@ -19,3 +19,4 @@ logs/
 **.out
 **.log
 **.json
+examples/
