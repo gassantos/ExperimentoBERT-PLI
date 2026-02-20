@@ -1,0 +1,20 @@
+{
+  "description": "Grid Search MÍNIMO - Teste de Pipeline Completo",
+  "experiment_base": "config/experiments/BertPLI.config",
+  "output_dir": "output/experiments/grid_search",
+  "parallel_workers": 1,
+  
+  "hyperparameters": {
+    "learning_rate": [1e-5],
+    "batch_size": [8],
+    "optimizer": ["adam", "adamw", "bert_adam"]
+  },
+  
+  "notes": [
+    "Configuração MÍNIMA para teste de pipeline",
+    "Apenas 1 experimento para validar execução completa",
+    "Tempo estimado: ~30 minutos (depende do dataset)",
+    "Memória estimada: ~4.5 GB",
+    "Objetivo: Verificar que todo o fluxo funciona antes de rodar grids maiores"
+  ]
+}

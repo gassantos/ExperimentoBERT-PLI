@@ -1,7 +1,8 @@
 # BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval
 
-Para executar no **Google Colab**, acesse: 
- - [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ptcAKCC_f7lX5y9B_zJ3iisO11W1Ny2K)
+Para executar no **Google Colab**, acesse:
+
+- [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ptcAKCC_f7lX5y9B_zJ3iisO11W1Ny2K)
 
 ## Quick Start with Synthetic Data
 
@@ -16,7 +17,6 @@ This repository includes synthetic legal case data for educational purposes loca
 ### Step-by-Step Execution
 
 **Stage 1: BM25 Selection**: The BM25 score is calculated according to the standard [scoring function](https://en.wikipedia.org/wiki/Okapi_BM25). We set $k_1=1.5$, $b=0.75$. Calculate BM25 scores separately.
-
 
 **Stage 2:Fine-tune BERT for paragraph pair classification**
 
@@ -41,7 +41,6 @@ uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -
 ```bash
 uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/valid_poolout.json
 ```
-
 
 **Stage 4:Train Attention-based RNN (LSTM/GRU)**
 

@@ -15,4 +15,7 @@ output/
 support/.venv
 qdrant/
 backup_qdrant/
+logs/
 **.out
+**.log
+**.json

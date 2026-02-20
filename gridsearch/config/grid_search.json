@@ -1,0 +1,28 @@
+{
+  "description": "Configuração completa de Grid Search - BERT-PLI (216 combinações)",
+  "experiment_base": "config/experiments/BertPLI.config",
+  "output_dir": "output/experiments/grid_search",
+  "parallel_workers": 2,
+  
+  "hyperparameters": {
+    "learning_rate": [1e-5, 2e-5, 3e-5, 5e-5],
+    "batch_size": [8, 16, 32],
+    "optimizer": ["adam", "adamw", "sgd", "bert_adam"],
+    "dropout": [0.1, 0.2, 0.3],
+    "seed": [42, 123, 456]
+  },
+  
+  "notes": [
+    "Grid completo: 4 x 3 x 2 x 3 x 3 = 216 experimentos",
+    "Tempo estimado: ~72-108 horas com parallel=2",
+    "Memória recomendada: 32GB RAM mínimo",
+    "Use --parallel 2 para evitar OOM em sistemas com 32GB"
+  ],
+  
+  "recommendations": {
+    "parallel_workers": 2,
+    "max_parallel_workers": 4,
+    "min_ram_gb": 32,
+    "safe_ram_gb": 64
+  }
+}

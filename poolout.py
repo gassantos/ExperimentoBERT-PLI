@@ -11,6 +11,7 @@ from pathlib import Path
 from tools.init_tool import init_all
 from tools.poolout_tool import pool_out
 from config_parser import create_config
+from utils.paths import PathManager
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -59,9 +60,10 @@ if __name__ == "__main__":
     parameters = init_all(config, gpu_list, args.checkpoint, "poolout")
 
     # Create output directory if it doesn't exist
-    Path(args.result).parent.mkdir(parents=True, exist_ok=True)
+    result_path = Path(args.result)
+    PathManager.ensure_dir(result_path.parent)
     
-    out_file = open(args.result, 'w', encoding='utf-8')
+    out_file = open(result_path, 'w', encoding='utf-8')
     outputs = pool_out(parameters, config, gpu_list, args.result)
     logger.info(f"Total number of outputs: {outputs}")
     for output in outputs:

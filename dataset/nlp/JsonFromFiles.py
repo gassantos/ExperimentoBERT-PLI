@@ -1,5 +1,5 @@
 import json
-import os
+from pathlib import Path
 from torch.utils.data import Dataset
 
 from tools.dataset_tool import dfs_search
@@ -10,13 +10,13 @@ class JsonFromFilesDataset(Dataset):
         self.config = config
         self.mode = mode
         self.file_list = []
-        self.data_path = config.get("data", "%s_data_path" % mode)
+        self.data_path = Path(config.get("data", "%s_data_path" % mode))
         self.encoding = encoding
 
         filename_list = config.get("data", "%s_file_list" % mode).replace(" ", "").split(",")
         recursive = config.getboolean("data", "recursive")
         for name in filename_list:
-            self.file_list = self.file_list + dfs_search(os.path.join(self.data_path, name), recursive)
+            self.file_list = self.file_list + dfs_search(self.data_path / name, recursive)
         self.file_list.sort()
 
         self.load_mem = config.getboolean("data", "load_into_mem")

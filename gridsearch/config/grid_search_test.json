@@ -1,0 +1,19 @@
+{
+  "description": "Configuração de teste para Grid Search - BERT-PLI (8 experimentos)",
+  "experiment_base": "config/experiments/BertPLI.config",
+  "output_dir": "output/experiments/grid_search",
+  "parallel_workers": 2,
+  
+  "hyperparameters": {
+    "learning_rate": [1e-5, 2e-5],
+    "batch_size": [8, 16],
+    "optimizer": ["adamw", "bert_adam"],
+    "dropout": [0.1]
+  },
+  
+  "notes": [
+    "Configuração de teste com apenas 8 experimentos (2 x 2 x 1 + seeds)",
+    "Ideal para validação rápida do pipeline",
+    "Memória estimada: ~7-10 GB com parallel=2"
+  ]
+}
