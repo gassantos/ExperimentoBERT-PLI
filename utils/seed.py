@@ -4,11 +4,18 @@ Configura seeds para todas as bibliotecas e frameworks usados.
 """
 import random
 import numpy as np
-import torch
 import os
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    import torch
+    _TORCH_AVAILABLE = True
+except (ImportError, OSError) as e:
+    torch = None
+    _TORCH_AVAILABLE = False
+    logger.warning(f"PyTorch não disponível: {e}")
 
 
 def set_seed(seed: int = 42, deterministic: bool = True):
@@ -27,31 +34,30 @@ def set_seed(seed: int = 42, deterministic: bool = True):
     # NumPy
     np.random.seed(seed)
     
-    # PyTorch
-    torch.manual_seed(seed)
-    
-    # CUDA (se disponível)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # Para multi-GPU
-        
-        if deterministic:
-            # Garante operações determinísticas (pode reduzir performance)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-            logger.info("CUDA deterministic mode enabled (may reduce performance)")
-        else:
-            # Melhor performance, mas não totalmente determinístico
-            torch.backends.cudnn.benchmark = True
-            logger.info("CUDA benchmark mode enabled (better performance, not fully deterministic)")
-    
-    # Apple Silicon MPS (se disponível)
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        torch.mps.manual_seed(seed)
-        logger.info("MPS seed set")
-    
     # Hash seed para Python (importante para dicionários)
     os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    # PyTorch (se disponível)
+    if _TORCH_AVAILABLE:
+        torch.manual_seed(seed)
+        
+        # CUDA (se disponível)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)  # Para multi-GPU
+            
+            if deterministic:
+                torch.backends.cudnn.deterministic = True
+                torch.backends.cudnn.benchmark = False
+                logger.info("CUDA deterministic mode enabled (may reduce performance)")
+            else:
+                torch.backends.cudnn.benchmark = True
+                logger.info("CUDA benchmark mode enabled (better performance, not fully deterministic)")
+        
+        # Apple Silicon MPS (se disponível)
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            torch.mps.manual_seed(seed)
+            logger.info("MPS seed set")
     
     # Transformers (se disponível)
     try:
@@ -72,16 +78,16 @@ def get_reproducibility_info():
     info = {
         "python_hash_seed": os.environ.get('PYTHONHASHSEED', 'not set'),
         "numpy_seed_available": True,
-        "torch_seed_available": True,
+        "torch_seed_available": _TORCH_AVAILABLE,
     }
     
-    if torch.cuda.is_available():
+    if _TORCH_AVAILABLE and torch.cuda.is_available():
         info.update({
             "cudnn_deterministic": torch.backends.cudnn.deterministic,
             "cudnn_benchmark": torch.backends.cudnn.benchmark,
         })
     
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    if _TORCH_AVAILABLE and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         info["mps_available"] = True
     
     return info

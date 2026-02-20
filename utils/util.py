@@ -1,7 +1,17 @@
 import platform
 import psutil
-import torch
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    import torch
+    _TORCH_AVAILABLE = True
+except (ImportError, OSError) as e:
+    torch = None
+    _TORCH_AVAILABLE = False
+    logger.warning(f"PyTorch não disponível: {e}")
 
 def get_cpu_info():
     """Coleta informações sobre a CPU."""
@@ -28,6 +38,9 @@ def get_ram_info():
 
 def get_gpu_info():
     """Coleta informações sobre a GPU."""
+    if not _TORCH_AVAILABLE:
+        return {'cuda_available': False, 'gpu_count': 0, 'gpus': [], 'error': 'PyTorch não disponível'}
+    
     gpu_info = {
         'cuda_available': torch.cuda.is_available(),
         'gpu_count': 0,
@@ -85,9 +98,12 @@ def get_device_info():
 
 def get_torch_device():
     """Retorna o dispositivo PyTorch disponível."""
+    if not _TORCH_AVAILABLE:
+        return {'type': 'unavailable', 'name': platform.processor(), 'device': None}
+    
     if torch.cuda.is_available():
         return {
-            'type': 'cuda',
+            'type': 'gpu',
             'name': torch.cuda.get_device_name(0),
             'device': torch.device('cuda')
         }
@@ -95,7 +111,7 @@ def get_torch_device():
         return {
             'type': 'cpu',
             'name': platform.processor(),
-            'device': torch.device('cpu')
+            'device': torch.device('cpu') if _TORCH_AVAILABLE else None
         }
 
 

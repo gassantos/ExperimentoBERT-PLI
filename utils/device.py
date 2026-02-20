@@ -2,11 +2,18 @@
 Módulo para detecção automática de dispositivo de computação.
 Suporta CUDA (NVIDIA), MPS (Apple Silicon) e CPU.
 """
-import torch
 import platform
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    import torch
+    _TORCH_AVAILABLE = True
+except (ImportError, OSError) as e:
+    torch = None
+    _TORCH_AVAILABLE = False
+    logger.warning(f"PyTorch não disponível neste ambiente: {e}")
 
 
 def get_device(prefer_cpu: bool = False):
@@ -17,8 +24,12 @@ def get_device(prefer_cpu: bool = False):
         prefer_cpu: Se True, força uso de CPU mesmo com GPU disponível
     
     Returns:
-        torch.device: Device otimizado para a plataforma atual
+        torch.device: Device otimizado para a plataforma atual, ou None se torch indisponível
     """
+    if not _TORCH_AVAILABLE:
+        logger.warning("PyTorch não disponível. Retornando device=None.")
+        return None
+    
     if prefer_cpu:
         logger.info("CPU mode forced by user")
         return torch.device("cpu")
@@ -57,6 +68,15 @@ def get_device_info():
     Returns:
         dict: Informações sobre dispositivo, memória e capacidade
     """
+    if not _TORCH_AVAILABLE:
+        return {
+            "device_type": "unavailable",
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "python_version": platform.python_version(),
+            "pytorch_version": None,
+            "error": "PyTorch não disponível neste ambiente"
+        }
     device = get_device()
     info = {
         "device_type": device.type,
@@ -90,6 +110,9 @@ def set_device_optimization(device):
     Args:
         device: torch.device para otimizar
     """
+    if not _TORCH_AVAILABLE or device is None:
+        logger.warning("PyTorch não disponível. Otimizações de device ignoradas.")
+        return
     if device.type == "cuda":
         # Habilita TF32 para Ampere GPUs (melhor performance)
         torch.backends.cuda.matmul.allow_tf32 = True

@@ -19,7 +19,6 @@ class PathManager:
     # Diretórios principais
     CACHE_DIR = BASE_DIR / ".cache"
     DATA_DIR = BASE_DIR / "data"
-    MODELS_DIR = BASE_DIR / "models"
     LOGS_DIR = BASE_DIR / "logs"
     RESULTS_DIR = BASE_DIR / "results"
     OUTPUT_DIR = BASE_DIR / "output"
@@ -38,7 +37,6 @@ class PathManager:
         directories = [
             cls.CACHE_DIR,
             cls.DATA_DIR,
-            cls.MODELS_DIR,
             cls.LOGS_DIR,
             cls.RESULTS_DIR,
             cls.OUTPUT_DIR,
@@ -149,12 +147,7 @@ class PathManager:
     def get_data_path(cls, filename: str) -> Path:
         """Retorna caminho completo para arquivo de dados."""
         return cls.DATA_DIR / filename
-    
-    @classmethod
-    def get_model_path(cls, model_name: str) -> Path:
-        """Retorna caminho completo para modelo salvo."""
-        return cls.MODELS_DIR / model_name
-    
+       
     @classmethod
     def get_log_path(cls, log_name: str) -> Path:
         """Retorna caminho completo para arquivo de log."""
