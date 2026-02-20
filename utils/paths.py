@@ -190,6 +190,11 @@ class PathManager:
     def get_results_path(cls, results_name: str) -> Path:
         """Retorna caminho completo para arquivo de resultados."""
         return cls.RESULTS_DIR / results_name
+    
+    @classmethod
+    def get_projectdir(cls) -> Path:
+        """Retorna caminho completo para diretório do projeto."""
+        return cls.BASE_DIR
 
 
 # Inicializa diretórios ao importar o módulo

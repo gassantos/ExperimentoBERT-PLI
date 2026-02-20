@@ -136,3 +136,200 @@ def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode
           (micro_prec_query, micro_recall_query, micro_f1_query))
     model.train()
     return {'precision': micro_prec_query, 'recall': micro_recall_query, 'f1': micro_f1_query, 'loss': loss_tmp}
+
+
+# ---------------------------------------------------------------------------
+# Avaliação de resultados (parse + métricas)
+# ---------------------------------------------------------------------------
+
+def parse_gru_results(input_file: str, output_file: str) -> None:
+    """
+    Converte saída bruta do GRU/LSTM (lista de pares ``[case_pair, scores]``)
+    para o formato task1: ``{query_file: [doc_file, ...]}``.
+
+    Args:
+        input_file: Arquivo JSON com resultados brutos do GRU/LSTM
+        output_file: Arquivo JSON de saída no formato task1
+    """
+    from pathlib import Path as _Path
+    import json as _json
+    from utils.paths import PathManager
+
+    output_path = _Path(output_file)
+    PathManager.ensure_dir(output_path.parent)
+
+    with open(input_file, "r") as f:
+        data = _json.load(f)
+
+    result: dict = {}
+
+    for entry in data:
+        if not entry or len(entry) != 2:
+            continue
+        case_pair, scores = entry[0], entry[1]
+        if not scores or len(scores) != 2:
+            continue
+
+        parts = case_pair.split("_")
+        if len(parts) != 2:
+            continue
+
+        query, doc = parts[0], parts[1]
+        score_irrelevant, score_relevant = scores[0], scores[1]
+
+        if score_relevant > score_irrelevant:
+            query_file = f"{query}.txt"
+            if query_file not in result:
+                result[query_file] = []
+            result[query_file].append(f"{doc}.txt")
+
+    for key in result:
+        result[key] = sorted(set(result[key]))
+
+    PathManager.ensure_dir(output_path.parent)
+    with open(output_file, "w") as f:
+        _json.dump(result, f, indent=2, sort_keys=True)
+
+    print(f"Parseados {len(data)} entradas → {len(result)} mapeamentos de casos")
+    print(f"Saída: {output_file}")
+
+
+def compute_metrics(labels_file: str, predicted_file: str, k_values: list = None) -> dict:
+    """
+    Calcula precisão, recall e F1 (geral e @k) comparando predições com ground truth.
+
+    Args:
+        labels_file: Arquivo ground truth (JSON Lines, um objeto por linha)
+        predicted_file: Arquivo de predições (JSON padrão)
+        k_values: Lista de valores de k para métricas @k (padrão: [1, 3, 5, 10])
+
+    Returns:
+        Dicionário com todas as métricas calculadas
+    """
+    import json as _json
+
+    if k_values is None:
+        k_values = [1, 3, 5, 10]
+
+    # Carrega ground truth (JSON Lines)
+    labels: dict = {}
+    with open(labels_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                obj = _json.loads(line)
+                labels.update(obj)
+
+    # Carrega predições (JSON padrão)
+    with open(predicted_file, "r") as f:
+        predicted: dict = _json.load(f)
+
+    # Normaliza chaves (remove .txt)
+    def _norm(key: str) -> str:
+        return key[:-4] if key.endswith(".txt") else key
+
+    labels = {_norm(k): [_norm(v) for v in vs] for k, vs in labels.items()}
+    predicted = {_norm(k): [_norm(v) for v in vs] for k, vs in predicted.items()}
+
+    total_tp = total_pred = total_actual = 0
+    k_metrics = {k: {"tp": 0, "predicted": 0, "actual": 0} for k in k_values}
+
+    for case in set(labels) | set(predicted):
+        true_set = set(labels.get(case, []))
+        pred_list = predicted.get(case, [])
+        pred_set = set(pred_list)
+
+        tp = len(true_set & pred_set)
+        total_tp += tp
+        total_pred += len(pred_set)
+        total_actual += len(true_set)
+
+        for k in k_values:
+            pred_at_k = set(pred_list[:k])
+            k_metrics[k]["tp"] += len(true_set & pred_at_k)
+            k_metrics[k]["predicted"] += len(pred_at_k)
+            k_metrics[k]["actual"] += len(true_set)
+
+    precision = total_tp / total_pred if total_pred else 0.0
+    recall = total_tp / total_actual if total_actual else 0.0
+    f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) else 0.0
+
+    results = {
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1,
+        "total_cases": len(set(labels) | set(predicted)),
+        "total_true_positives": total_tp,
+        "total_predicted": total_pred,
+        "total_actual": total_actual,
+    }
+
+    for k in k_values:
+        ktp = k_metrics[k]["tp"]
+        kp = k_metrics[k]["predicted"]
+        ka = k_metrics[k]["actual"]
+        pk = ktp / kp if kp else 0.0
+        rk = ktp / ka if ka else 0.0
+        f1k = (2 * pk * rk) / (pk + rk) if (pk + rk) else 0.0
+        results[f"precision@{k}"] = pk
+        results[f"recall@{k}"] = rk
+        results[f"f1_score@{k}"] = f1k
+
+    return results
+
+
+def evaluate_predictions(
+    labels_file: str,
+    predicted_file: str,
+    output_file: str = "",
+) -> dict:
+    """
+    Avalia predições contra o ground truth e imprime um relatório.
+
+    Args:
+        labels_file: Arquivo ground truth (JSON Lines)
+        predicted_file: Arquivo de predições (JSON padrão)
+        output_file: Caminho opcional para salvar métricas como JSON
+
+    Returns:
+        Dicionário com todas as métricas calculadas
+    """
+    from pathlib import Path as _Path
+    import json as _json
+
+    print("Avaliando predições...")
+    print(f"  Ground truth : {labels_file}")
+    print(f"  Predições    : {predicted_file}")
+    print("-" * 50)
+
+    metrics = compute_metrics(labels_file, predicted_file)
+
+    print("Métricas gerais:")
+    print(f"  Precision : {metrics['precision']:.4f}")
+    print(f"  Recall    : {metrics['recall']:.4f}")
+    print(f"  F1-Score  : {metrics['f1_score']:.4f}")
+    print()
+
+    print("Métricas @k:")
+    for k in [1, 3, 5, 10]:
+        if f"precision@{k}" in metrics:
+            print(
+                f"  @{k:2d}  P={metrics[f'precision@{k}']:.4f}  "
+                f"R={metrics[f'recall@{k}']:.4f}  "
+                f"F1={metrics[f'f1_score@{k}']:.4f}"
+            )
+    print()
+
+    print("Sumário:")
+    print(f"  Casos totais      : {metrics['total_cases']}")
+    print(f"  True positives    : {metrics['total_true_positives']}")
+    print(f"  Total preditos    : {metrics['total_predicted']}")
+    print(f"  Total reais       : {metrics['total_actual']}")
+
+    if output_file:
+        _Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, "w") as f:
+            _json.dump(metrics, f, indent=2, sort_keys=True)
+        print(f"\nResultados salvos em: {output_file}")
+
+    return metrics

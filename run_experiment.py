@@ -117,7 +117,7 @@ def execute_experiment(config_path):
 
     # -------- EXEC TRAIN (EXTERNAL) --------
     process = subprocess.Popen(
-        ["uv", "run", "python", "train.py", "-c", config_path, "-g", "0"],
+        ["uv", "run", "python", "scripts/train.py", "-c", config_path, "-g", "0"],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         universal_newlines=True,
