@@ -4,7 +4,7 @@ Este documento demonstra o formato de saída do relatório aprimorado do Grid Se
 
 ## Relatório Gerado (`grid_search_summary.txt`)
 
-```
+```yaml
 ================================================================================
 GRID SEARCH - RELATÓRIO DE RESULTADOS
 ================================================================================
@@ -97,6 +97,7 @@ O relatório revela trade-offs importantes:
 ### 💰 Análise de Custos
 
 Com tarifa de $0.12/kWh:
+
 - **Experimento único**: ~$0.01 USD
 - **Grid completo (216 exp)**: ~$2.21 USD
 - **Economia potencial**: Escolhendo configuração ótima, pode-se reduzir custos em 40-50%
@@ -123,6 +124,7 @@ Baseado em análise multi-critério (balanceando todas métricas):
 ```
 
 **Justificativa:**
+
 - ✅ Menor emissão de carbono
 - ✅ Menor custo financeiro
 - ✅ Menor consumo energético
