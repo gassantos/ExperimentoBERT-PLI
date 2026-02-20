@@ -9,6 +9,20 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Configuração do cache do HuggingFace para o diretório LOCAL do projeto.
+# DEVE ser executado ANTES de qualquer import de transformers/huggingface_hub,
+# por isso está no nível de módulo de utils/paths (importado primeiro).
+# Usa setdefault para respeitar sobrescritas via variável de ambiente externa.
+# ---------------------------------------------------------------------------
+_BASE_DIR = Path(__file__).resolve().parent.parent
+_HF_PRETRAINED_DIR = _BASE_DIR / "examples" / "pretrain_models"
+_HF_PRETRAINED_DIR.mkdir(parents=True, exist_ok=True)
+
+os.environ.setdefault("HF_HOME", str(_HF_PRETRAINED_DIR))
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(_HF_PRETRAINED_DIR / "hub"))
+os.environ.setdefault("TRANSFORMERS_CACHE", str(_HF_PRETRAINED_DIR / "hub"))
+
 
 class PathManager:
     """Gerenciador de caminhos do projeto com suporte multiplataforma."""
@@ -24,6 +38,10 @@ class PathManager:
     OUTPUT_DIR = BASE_DIR / "output"
     EXPERIMENTS_DIR = OUTPUT_DIR / "experiments"
     CHECKPOINTS_DIR = OUTPUT_DIR / "checkpoints"
+
+    # Diretório local para artefatos de modelos pré-treinados (HuggingFace cache)
+    HF_PRETRAINED_DIR = BASE_DIR / "examples" / "pretrain_models"
+    HF_HUB_CACHE_DIR = HF_PRETRAINED_DIR / "hub"
     
     
     @classmethod

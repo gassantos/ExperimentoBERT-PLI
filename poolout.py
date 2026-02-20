@@ -7,11 +7,11 @@ import torch
 import json
 import logging
 from pathlib import Path
+from utils.paths import PathManager  # configura HF_HOME antes de qualquer import transformers
 
 from tools.init_tool import init_all
 from tools.poolout_tool import pool_out
 from config_parser import create_config
-from utils.paths import PathManager
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',

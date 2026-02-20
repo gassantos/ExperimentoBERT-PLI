@@ -35,7 +35,7 @@ def init_all(config, gpu_list, checkpoint, mode, *args, **params):
 
         try:
             model.init_multi_gpu(gpu_list, config, *args, **params)
-        except Exception as e:
+        except Exception:
             logger.warning("No init_multi_gpu implemented in the model, use single gpu instead.")
 
     try:
