@@ -1,8 +1,7 @@
 import logging
 import torch
-import os
 
-from reader.reader import init_dataset, init_formatter, init_test_dataset
+from utils.reader import init_dataset, init_formatter, init_test_dataset
 from model import get_model
 from model.optimizer import init_optimizer
 from .output_init import init_output_function
@@ -13,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 def init_all(config, gpu_list, checkpoint, mode, *args, **params):
     result = {}
+    warmup_scheduler_state = None
 
     logger.info("Begin to initialize dataset and formatter..., mode=%s", mode)
     if mode == "train":
@@ -34,7 +34,7 @@ def init_all(config, gpu_list, checkpoint, mode, *args, **params):
 
         try:
             model.init_multi_gpu(gpu_list, config, *args, **params)
-        except Exception as e:
+        except Exception:
             logger.warning("No init_multi_gpu implemented in the model, use single gpu instead.")
 
     try:
@@ -54,6 +54,10 @@ def init_all(config, gpu_list, checkpoint, mode, *args, **params):
 
             if "global_step" in parameters:
                 global_step = parameters["global_step"]
+
+            if "warmup_scheduler" in parameters:
+                warmup_scheduler_state = parameters["warmup_scheduler"]
+                logger.info("Warmup scheduler state found in checkpoint.")
     except Exception as e:
         information = "Cannot load checkpoint file with error %s" % str(e)
         if mode == "test":
@@ -68,6 +72,8 @@ def init_all(config, gpu_list, checkpoint, mode, *args, **params):
         result["trained_epoch"] = trained_epoch
         result["output_function"] = init_output_function(config)
         result["global_step"] = global_step
+        if warmup_scheduler_state is not None:
+            result["warmup_scheduler_state"] = warmup_scheduler_state
 
     logger.info("Initialize done.")
 

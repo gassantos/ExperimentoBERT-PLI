@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 __author__ = 'yshao'
 
+import torch
 import torch.nn as nn
-from pytorch_pretrained_bert import BertModel
+from transformers import BertModel
 
 from tools.accuracy_init import init_accuracy_function
 
@@ -15,7 +16,10 @@ class BertPoint(nn.Module):
         self.output_mode = config.get('model', 'output_mode')
 
         self.bert = BertModel.from_pretrained(config.get("model", "bert_path"))
-        self.fc = nn.Linear(768, self.output_dim)
+        # Lê hidden_size diretamente do backbone carregado — compatível com
+        # bert-base (768), bert-large (1024), DeBERTa, RoBERTa, LegalBERT, etc.
+        self.hidden_size = self.bert.config.hidden_size
+        self.fc = nn.Linear(self.hidden_size, self.output_dim)
         if self.output_mode == 'classification':
             self.criterion = nn.CrossEntropyLoss()
         else:
@@ -25,11 +29,33 @@ class BertPoint(nn.Module):
     def init_multi_gpu(self, device, config, *args, **params):
         self.bert = nn.DataParallel(self.bert, device_ids=device)
 
+    @staticmethod
+    def _mean_pooling(last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Mean pooling sobre os token embeddings mascarados.
+
+        Referência: Reimers & Gurevych (2019) — Sentence-BERT.
+        Preferível ao pooler_output (tanh([CLS])) para tarefas de similaridade
+        semântica, pois agrega toda a sequência com pesos uniformes.
+
+        Args:
+            last_hidden_state: Tensor [B, L, H] — saída da última camada do encoder.
+            attention_mask:    Tensor [B, L]    — 1 para tokens reais, 0 para padding.
+        Returns:
+            Tensor [B, H] — embedding médio por amostra do batch.
+        """
+        # Expande a máscara para [B, L, H] e converte para float
+        mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+        sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
+        # clamp evita divisão por zero em sequências totalmente mascaradas
+        sum_mask = mask.sum(dim=1).clamp(min=1e-9)
+        return sum_embeddings / sum_mask
+
     def forward(self, data, config, gpu_list, acc_result, mode):
         input_ids, attention_mask, token_type_ids = data['input_ids'], data['attention_mask'], data['token_type_ids']
-        _, y = self.bert(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask,
-                            output_all_encoded_layers=False)
-        y = y.view(y.size()[0], -1)
+        outputs = self.bert(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask)
+        # Mean pooling: agrega last_hidden_state ponderado pela attention_mask — [B, H]
+        y = self._mean_pooling(outputs.last_hidden_state, attention_mask)
         if mode == 'test' and config.getboolean('output', 'pool_out'):
             output = []
             y = y.cpu().detach().numpy().tolist()

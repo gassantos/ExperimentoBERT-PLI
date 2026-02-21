@@ -255,11 +255,3 @@ python -m gridsearch.core --resume --parallel 2
 Remove-Item output/experiments/grid_search/grid_search_state.json
 python -m gridsearch.core --config ... --parallel 2
 ```
-
-## 📄 Licença
-
-Parte do projeto BERT-PLI.
-
-## 👥 Autores
-
-BERT-PLI Team - 2026

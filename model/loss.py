@@ -1,30 +1,35 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-import numpy as np
 
 
 class MultiLabelSoftmaxLoss(nn.Module):
     def __init__(self, config):
         super(MultiLabelSoftmaxLoss, self).__init__()
         self.task_num = config.getint("model", "output_dim")
-        self.criterion = []
-        for a in range(0, self.task_num):
+        # Armazena os pesos como floats Python — o tensor é criado no forward()
+        # com o device correto, eliminando o .cuda() hardcoded que quebrava
+        # em CPU e Apple MPS.
+        self._loss_weights = []
+        for a in range(self.task_num):
             try:
                 ratio = config.getfloat("train", "loss_weight_%d" % a)
-                self.criterion.append(
-                    nn.CrossEntropyLoss(weight=torch.from_numpy(np.array([1.0, ratio], dtype=np.float32)).cuda()))
-                # print_info("Task %d with weight %.3lf" % (task, ratio))
-            except Exception as e:
-                self.criterion.append(nn.CrossEntropyLoss())
+                self._loss_weights.append(ratio)
+            except Exception:
+                self._loss_weights.append(None)
 
     def forward(self, outputs, labels):
         loss = 0
         for a in range(0, len(outputs[0])):
             o = outputs[:, a, :].view(outputs.size()[0], -1)
-            loss += self.criterion[a](o, labels[:, a])
-
+            w = self._loss_weights[a]
+            if w is not None:
+                # Tensor criado no device do input — funciona em CPU, CUDA e MPS
+                weight = torch.tensor([1.0, w], dtype=torch.float32, device=o.device)
+                criterion = nn.CrossEntropyLoss(weight=weight)
+            else:
+                criterion = nn.CrossEntropyLoss()
+            loss += criterion(o, labels[:, a])
         return loss
 
 
@@ -56,16 +61,16 @@ class FocalLoss(nn.Module):
             input = input.contiguous().view(-1, input.size(2))  # N,H*W,C => N*H*W,C
         target = target.view(-1, 1)
 
-        logpt = F.log_softmax(input)
+        logpt = F.log_softmax(input, dim=1)
         logpt = logpt.gather(1, target)
         logpt = logpt.view(-1)
-        pt = Variable(logpt.data.exp())
+        pt = logpt.detach().exp()
 
         if self.alpha is not None:
             if self.alpha.type() != input.data.type():
                 self.alpha = self.alpha.type_as(input.data)
             at = self.alpha.gather(0, target.data.view(-1))
-            logpt = logpt * Variable(at)
+            logpt = logpt * at
 
         loss = -1 * (1 - pt) ** self.gamma * logpt
         if self.size_average:

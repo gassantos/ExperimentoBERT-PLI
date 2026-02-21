@@ -1,7 +1,6 @@
 import logging
 import os
 import torch
-from torch.autograd import Variable
 from timeit import default_timer as timer
 
 from tools.eval_tool import gen_time_str, output_value
@@ -29,9 +28,7 @@ def test(parameters, config, gpu_list):
         for key in data.keys():
             if isinstance(data[key], torch.Tensor):
                 if len(gpu_list) > 0:
-                    data[key] = Variable(data[key].cuda())
-                else:
-                    data[key] = Variable(data[key])
+                    data[key] = data[key].cuda()
 
         results = model(data, config, gpu_list, acc_result, "test")
         result = result + results["output"]

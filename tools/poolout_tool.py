@@ -6,7 +6,6 @@ import logging
 import torch
 import json
 
-from torch.autograd import Variable
 from timeit import default_timer as timer
 
 from tools.eval_tool import gen_time_str, output_value
@@ -57,9 +56,7 @@ def pool_out(parameters, config, gpu_list, _outname):
         for key in data.keys():
             if isinstance(data[key], torch.Tensor):
                 if len(gpu_list) > 0:
-                    data[key] = Variable(data[key].cuda())
-                else:
-                    data[key] = Variable(data[key])
+                    data[key] = data[key].cuda()
 
         results = model(data, config, gpu_list, acc_result, "poolout")
         result = result + results["output"]

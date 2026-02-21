@@ -1,9 +1,12 @@
 from pathlib import Path
+import os
+import re
+import sys
+import threading
 import subprocess
 import configparser
 import time
 import uuid
-import os
 import json
 import csv
 import logging
@@ -13,10 +16,10 @@ from utils.paths import PathManager
 import torch
 import psutil
 from utils.util import print_system_info
-
-# Desabilita otimizações do oneDNN para garantir consistência nas medições de desempenho
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-import tensorflow as tf
+from tools.eval_tool import (
+    convert_test_results_to_task1, 
+    compute_metrics
+)
 
 try:
     from codecarbon import EmissionsTracker
@@ -59,15 +62,14 @@ def get_accelerator_type():
     except Exception:
         pass
 
-    # Check for TPU
+    # Check for TPU (torch_xla - PyTorch/XLA para Google Cloud TPU)
     try:
-        tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
-        tf.config.experimental_connect_to_cluster(tpu)
-        tf.tpu.experimental.initialize_tpu_system(tpu)
+        import torch_xla.core.xla_model as xm  # type: ignore
+        xm.xla_device()
         return 'TPU'
     except Exception:
         pass
-    
+
     return 'CPU'
 
 def estimate_bert_flops(
@@ -114,39 +116,77 @@ def execute_experiment(config_path):
     if EmissionsTracker and mon.getboolean("enable_monitoring"):
         tracker = EmissionsTracker(
             project_name=exp["name"],
-            output_dir=_METRICS_DIR,
+            output_dir=_METRICS_DIR.as_posix(),
             log_level="error",
             output_file=f"EmissionsCO2_{device_type}_{datetime.now().strftime('%Y%m%d')}.csv"
         )
         tracker.start()
 
-    # -------- EXEC TRAIN (EXTERNAL) --------
-    process = subprocess.Popen(
-        ["uv", "run", "python", "train.py", "-c", config_path, "-g", "0"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        bufsize=1
-    )
+    # -------- EXEC TRAIN (IN-PROCESS) --------
+    # Importa de forma lazy para evitar inicialização de CUDA no processo
+    # principal antes da configuração de gpu_list.
+    from utils.config import create_config
+    from tools.init_tool import init_all
+    from tools.train_tool import train as run_train
 
-    ps_proc = psutil.Process(process.pid)
-    ram_samples = []
-    output_lines = []
+    # Reproduz o comportamento anterior: GPU 0 se disponível, caso contrário CPU.
+    # TODO: expor como parâmetro de execute_experiment para suporte multi-GPU.
+    gpu_list = [0] if torch.cuda.is_available() else []
 
-    # Stream output in real-time
-    for line in process.stdout:
-        print(line, end='')  # Print to console
-        output_lines.append(line)  # Store for later
-        try:
-            ram_samples.append(ps_proc.memory_info().rss / (1024 ** 2))
-        except psutil.NoSuchProcess:
-            break
+    # _TeeStream: escreve simultaneamente no terminal e em um buffer em memória.
+    # Permite capturar o stdout do loop de treino sem perder a saída em tempo real.
+    class _TeeStream:
+        def __init__(self, original):
+            self.original = original
+            self.lines: list = []
+        def write(self, text: str) -> None:
+            self.original.write(text)
+            self.lines.append(text)
+        def flush(self) -> None:
+            self.original.flush()
+        def fileno(self) -> int:          # necessário para logging handlers
+            return self.original.fileno()
 
-    process.wait()
-    stdout = ''.join(output_lines)
+    tee = _TeeStream(sys.stdout)
+    sys.stdout = tee
+
+    # Amostragem de RAM em thread daemon (1 amostra/segundo).
+    # Usa o PID do processo atual — mais preciso do que medir um subprocesso
+    # filho, e permite incluir VRAM via torch.cuda.memory_allocated().
+    ram_samples: list = []
+    _stop_ram = threading.Event()
+
+    def _sample_ram() -> None:
+        proc = psutil.Process(os.getpid())
+        while not _stop_ram.is_set():
+            try:
+                ram_samples.append(proc.memory_info().rss / (1024 ** 2))
+            except psutil.NoSuchProcess:
+                break
+            _stop_ram.wait(timeout=1.0)
+
+    ram_thread = threading.Thread(target=_sample_ram, daemon=True)
+    ram_thread.start()
+
+    status = "failed"
+    stdout = ""
     stderr = ""
+    output_lines: list = []
 
-    status = "success" if process.returncode == 0 else "failed"
+    try:
+        config = create_config(config_path)
+        parameters = init_all(config, gpu_list, None, "train")
+        run_train(parameters, config, gpu_list)
+        status = "success"
+    except Exception as exc:
+        logger.error("Treinamento falhou: %s", exc, exc_info=True)
+        stderr = str(exc)
+    finally:
+        _stop_ram.set()
+        ram_thread.join(timeout=5)
+        sys.stdout = tee.original
+        output_lines = tee.lines
+        stdout = "".join(output_lines)
 
     # -------- STOP ENERGY TRACKER --------
     emissions_kg = None
@@ -191,6 +231,99 @@ def execute_experiment(config_path):
         logger.warning("Profiling metrics not found, using estimation")
         total_gflops = estimate_bert_flops(seq_len=256)
 
+    # -------- EVAL METRICS --------
+    # Padrão de regex para extrair métricas do log de validação do train_tool
+    _VALID_RE = re.compile(
+        r"valid set: micro_prec_query=([\d.]+),\s*micro_recall_query=([\d.]+),\s*micro_f1_query=([\d.]+)"
+    )
+
+    eval_metrics = {}
+    if status == "success":
+        try:
+            run_test_at_end = cfg.getboolean("eval", "run_test_at_end", fallback=False)
+            pool_out_mode = cfg.getboolean("output", "pool_out", fallback=False)
+            if pool_out_mode:
+                # Pipeline de dois estágios: BERT como extrator de embeddings.
+                # As métricas de validação já foram computadas durante o treino e
+                # estão impressas no stdout capturado — extraímos a última ocorrência.
+                last_match = None
+                for line in output_lines:
+                    m = _VALID_RE.search(line)
+                    if m:
+                        last_match = m
+                if last_match:
+                    eval_metrics = {
+                        "precision": float(last_match.group(1)),
+                        "recall":    float(last_match.group(2)),
+                        "f1_score":  float(last_match.group(3)),
+                        "source":    "validation_log",
+                    }
+                    logger.info(
+                        "Métricas (validação final, pool_out): P=%.4f  R=%.4f  F1=%.4f",
+                        eval_metrics["precision"],
+                        eval_metrics["recall"],
+                        eval_metrics["f1_score"],
+                    )
+                else:
+                    logger.warning(
+                        "pool_out=True mas nenhuma linha 'valid set:' encontrada no stdout. "
+                        "Métricas de avaliação indisponíveis."
+                    )
+            elif run_test_at_end:
+                model_out_path = Path(cfg.get("output", "model_path")) / cfg.get("output", "model_name")
+                labels_path = cfg.get("data", "test_labels_file", fallback="data/task1_test_labels_2024.json")
+                test_result_path = model_out_path / "test_results.json"
+
+                # Localiza o último checkpoint salvo (por número de época)
+                last_epoch = cfg.getint("train", "epoch") - 1
+                checkpoint_path = model_out_path / f"{last_epoch}.pkl"
+                if not checkpoint_path.exists():
+                    pkl_files = sorted(
+                        model_out_path.glob("*.pkl"),
+                        key=lambda p: int(p.stem) if p.stem.isdigit() else -1,
+                    )
+                    checkpoint_path = pkl_files[-1] if pkl_files else None
+
+                if checkpoint_path and checkpoint_path.exists() and Path(labels_path).exists():
+                    logger.info("Executando avaliação com checkpoint: %s", checkpoint_path)
+                    test_proc = subprocess.run(
+                        [
+                            "uv", "run", "python", "scripts/test.py",
+                            "-c", config_path,
+                            "-g", "0",
+                            "--checkpoint", str(checkpoint_path),
+                            "--result", str(test_result_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if test_proc.returncode == 0 and test_result_path.exists():
+                        task1_predicted = convert_test_results_to_task1(str(test_result_path))
+                        task1_path = model_out_path / "test_results_task1.json"
+                        with open(task1_path, "w") as f:
+                            json.dump(task1_predicted, f)
+                        eval_metrics = compute_metrics(labels_path, str(task1_path))
+                        logger.info(
+                            "Métricas de avaliação: P=%.4f  R=%.4f  F1=%.4f",
+                            eval_metrics["precision"],
+                            eval_metrics["recall"],
+                            eval_metrics["f1_score"],
+                        )
+                    else:
+                        logger.warning(
+                            "Subprocess de teste falhou (código %d). Métricas de avaliação indisponíveis.\n%s",
+                            test_proc.returncode,
+                            test_proc.stderr[-500:],
+                        )
+                else:
+                    logger.warning(
+                        "Checkpoint (%s) ou labels (%s) não encontrado. Métricas de avaliação indisponíveis.",
+                        checkpoint_path,
+                        labels_path,
+                    )
+        except Exception as exc:
+            logger.warning("Erro ao calcular métricas de avaliação: %s", exc)
+
     # =========================
     # JSON OUTPUT
     # =========================
@@ -234,6 +367,7 @@ def execute_experiment(config_path):
             "peak_ram_mb": peak_ram,
             "total_gflops": total_gflops
         },
+        "evaluation": eval_metrics if eval_metrics else None,
         "logs": {
             "stdout_tail": stdout[-1000:],
             "stderr_tail": stderr[-1000:]
@@ -272,7 +406,11 @@ def execute_experiment(config_path):
                 "avg_gflops_per_batch",
                 "total_gflops",
                 "status",
-                "timestamp"
+                "timestamp",
+                "eval_precision",
+                "eval_recall",
+                "eval_f1",
+                "eval_source",
             ])
 
         writer.writerow([
@@ -289,10 +427,14 @@ def execute_experiment(config_path):
             emissions_kg,
             avg_ram,
             peak_ram,
-            avg_gflops_per_batch,            
+            avg_gflops_per_batch,
             total_gflops,
             status,
-            end_iso
+            end_iso,
+            f"{eval_metrics['precision']:.4f}" if eval_metrics else None,
+            f"{eval_metrics['recall']:.4f}" if eval_metrics else None,
+            f"{eval_metrics['f1_score']:.4f}" if eval_metrics else None,
+            eval_metrics.get("source") if eval_metrics else None,
         ])
 
     print(f"[OK] Wrapper finalizou em {exec_time:.2f} segundos - {exp['name']} ({status})")

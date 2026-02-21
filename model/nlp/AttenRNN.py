@@ -29,7 +29,10 @@ class AttentionRNN(nn.Module):
     def __init__(self, config, gpu_list, *args, **params):
         super(AttentionRNN, self).__init__()
 
-        self.input_dim = 768
+        # Dimensão de entrada = hidden_size do backbone BERT que gerou os embeddings.
+        # Lida do config para desacoplar AttenRNN do backbone concreto.
+        # Fallback 768 garante retrocompatibilidade com configs existentes.
+        self.input_dim = config.getint('model', 'bert_hidden_size', fallback=768)
         self.hidden_dim = config.getint('model', 'hidden_dim')
         self.dropout_rnn = config.getfloat('model', 'dropout_rnn')
         self.dropout_fc = config.getfloat('model', 'dropout_fc')
@@ -71,38 +74,15 @@ class AttentionRNN(nn.Module):
         return weight_lst
 
     def init_hidden(self, config, batch_size, gpu_list):
-        if torch.cuda.is_available() and len(gpu_list) > 0:
-            if config.get('model', 'rnn') == 'lstm':
-                self.hidden = (
-                    torch.autograd.Variable(
-                        torch.zeros((self.direction * self.num_layers, batch_size,
-                                self.hidden_dim)).cuda()),
-                    torch.autograd.Variable(
-                        torch.zeros((self.direction * self.num_layers, batch_size,
-                                    self.hidden_dim)).cuda())
-                )
-            else:
-                self.hidden = (
-                    torch.autograd.Variable(
-                        torch.zeros((self.direction * self.num_layers, batch_size,
-                                    self.hidden_dim)).cuda())
-                )
+        device = torch.device("cuda" if torch.cuda.is_available() and len(gpu_list) > 0 else "cpu")
+        shape = (self.direction * self.num_layers, batch_size, self.hidden_dim)
+        if config.get('model', 'rnn') == 'lstm':
+            self.hidden = (
+                torch.zeros(shape, device=device),
+                torch.zeros(shape, device=device),
+            )
         else:
-            if config.get('model', 'rnn') == 'lstm':
-                self.hidden = (
-                    torch.autograd.Variable(
-                        torch.zeros((self.direction * self.num_layers, batch_size,
-                                self.hidden_dim))),
-                    torch.autograd.Variable(
-                        torch.zeros((self.direction * self.num_layers, batch_size,
-                                    self.hidden_dim)))
-                )
-            else:
-                self.hidden = (
-                    torch.autograd.Variable(
-                        torch.zeros((self.direction * self.num_layers, batch_size,
-                                    self.hidden_dim)))
-                )
+            self.hidden = torch.zeros(shape, device=device)
 
     def init_multi_gpu(self, device, config, *args, **params):
         self.rnn = nn.DataParallel(self.rnn, device_ids=device)
