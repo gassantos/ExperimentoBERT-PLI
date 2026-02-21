@@ -333,3 +333,66 @@ def evaluate_predictions(
         print(f"\nResultados salvos em: {output_file}")
 
     return metrics
+
+
+def convert_test_results_to_task1(test_results_file: str) -> dict:
+    """
+    Converte a saída de ``scripts/test.py`` para o formato task1
+    ``{"query.txt": ["doc1.txt", ...]}``, com suporte aos dois formatos
+    possíveis de GUID:
+
+    * **Flat** (``"query_doc"``): item de parágrafo já pré-processado.
+      Classificado como relevante se ``scores[1] > scores[0]``.
+    * **Expandido** (``"query_doc___qi_ci"``): pares gerados internamente pelo
+      ``BertPairTextFormatter`` a partir de ``q_paras``/``c_paras``.
+      Usa **max pooling** sobre ``scores[1]`` para agregar os pares de
+      parágrafo de volta ao par caso-documento original.
+
+    Args:
+        test_results_file: Arquivo JSON Lines gerado por ``scripts/test.py``
+            (cada linha: ``{"id_": "<guid>", "res": [s_irrel, s_rel]}``).
+
+    Returns:
+        Dicionário no formato task1 pronto para :func:`compute_metrics`.
+    """
+    import json as _json
+
+    _SEP = "___"  # mesmo separador de BertPairTextFormatter
+
+    # guid_base → (best_score_irrel, best_score_rel)
+    best_scores: dict = {}
+
+    with open(test_results_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = _json.loads(line)
+            guid = item.get("id_", "")
+            scores = item.get("res", [])
+            if not guid or len(scores) != 2:
+                continue
+
+            # Strip de sufixo de parágrafo, se existir
+            base_guid = guid.split(_SEP)[0]
+
+            # Max pooling: mantém o par com maior score de relevância
+            prev = best_scores.get(base_guid)
+            if prev is None or scores[1] > prev[1]:
+                best_scores[base_guid] = (scores[0], scores[1])
+
+    result: dict = {}
+    for base_guid, (s_irrel, s_rel) in best_scores.items():
+        parts = base_guid.split("_")
+        if len(parts) != 2:
+            continue
+        query, doc = parts[0], parts[1]
+        if s_rel > s_irrel:
+            query_file = f"{query}.txt"
+            if query_file not in result:
+                result[query_file] = []
+            result[query_file].append(f"{doc}.txt")
+
+    for key in result:
+        result[key] = sorted(set(result[key]))
+    return result
