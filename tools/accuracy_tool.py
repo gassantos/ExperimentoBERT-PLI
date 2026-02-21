@@ -1,7 +1,7 @@
 import logging
 import torch
 
-logger = logging.Logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def get_prf(res):
