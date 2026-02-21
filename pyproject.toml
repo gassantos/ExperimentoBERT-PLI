@@ -3,7 +3,7 @@ name = "experimentobert-pli"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "codecarbon>=3.2.2",
     "configparser>=7.2.0",
@@ -11,9 +11,9 @@ dependencies = [
     "numpy>=2.2.6",
     "psutil>=7.2.2",
     "tensorboard>=2.14",
-    "torch>=2.9.1",
+    "torch>=2.9.0",
     "torchaudio>=2.4.0",
-    "torchvision>=0.24.1",
+    "torchvision>=0.20.0",
     "tqdm>=4.67.1",
     "transformers[torch]>=5.2.0",
 ]
@@ -31,6 +31,10 @@ torch = [
   { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
 ]
 torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchaudio = [
   { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
   { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
 ]
