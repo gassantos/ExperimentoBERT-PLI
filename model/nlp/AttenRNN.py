@@ -29,7 +29,10 @@ class AttentionRNN(nn.Module):
     def __init__(self, config, gpu_list, *args, **params):
         super(AttentionRNN, self).__init__()
 
-        self.input_dim = 768
+        # Dimensão de entrada = hidden_size do backbone BERT que gerou os embeddings.
+        # Lida do config para desacoplar AttenRNN do backbone concreto.
+        # Fallback 768 garante retrocompatibilidade com configs existentes.
+        self.input_dim = config.getint('model', 'bert_hidden_size', fallback=768)
         self.hidden_dim = config.getint('model', 'hidden_dim')
         self.dropout_rnn = config.getfloat('model', 'dropout_rnn')
         self.dropout_fc = config.getfloat('model', 'dropout_fc')
