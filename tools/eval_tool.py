@@ -2,7 +2,6 @@ import logging
 import torch
 import numpy as np
 from collections import defaultdict
-from torch.autograd import Variable
 from timeit import default_timer as timer
 
 logger = logging.getLogger(__name__)
@@ -99,9 +98,7 @@ def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode
         for key in data.keys():
             if isinstance(data[key], torch.Tensor):
                 if len(gpu_list) > 0:
-                    data[key] = Variable(data[key].cuda())
-                else:
-                    data[key] = Variable(data[key])
+                    data[key] = data[key].cuda()
 
         results = model(data, config, gpu_list, acc_result, "valid")
         loss, acc_result, output = results["loss"], results["acc_result"], results["output"]
