@@ -1,5 +1,8 @@
 from pathlib import Path
+import os
 import re
+import sys
+import threading
 import subprocess
 import configparser
 import time
@@ -119,38 +122,71 @@ def execute_experiment(config_path):
         )
         tracker.start()
 
-    # -------- EXEC TRAIN (EXTERNAL) --------
-    process = subprocess.Popen(
-        ["uv", "run", "python", "scripts/train.py", "-c", config_path, "-g", "0"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        bufsize=1
-    )
+    # -------- EXEC TRAIN (IN-PROCESS) --------
+    # Importa de forma lazy para evitar inicialização de CUDA no processo
+    # principal antes da configuração de gpu_list.
+    from utils.config import create_config
+    from tools.init_tool import init_all
+    from tools.train_tool import train as run_train
 
-    ps_proc = psutil.Process(process.pid)
-    ram_samples = []
-    output_lines = []
+    # Reproduz o comportamento anterior: GPU 0 se disponível, caso contrário CPU.
+    # TODO: expor como parâmetro de execute_experiment para suporte multi-GPU.
+    gpu_list = [0] if torch.cuda.is_available() else []
 
-    # Stream output in real-time
-    if process.stdout is None:
-        logger.error("Failed to capture subprocess output.")
-        pass
-    else:
-        
-        for line in process.stdout:
-            print(line, end='')  # Print to console
-            output_lines.append(line)  # Store for later
+    # _TeeStream: escreve simultaneamente no terminal e em um buffer em memória.
+    # Permite capturar o stdout do loop de treino sem perder a saída em tempo real.
+    class _TeeStream:
+        def __init__(self, original):
+            self.original = original
+            self.lines: list = []
+        def write(self, text: str) -> None:
+            self.original.write(text)
+            self.lines.append(text)
+        def flush(self) -> None:
+            self.original.flush()
+        def fileno(self) -> int:          # necessário para logging handlers
+            return self.original.fileno()
+
+    tee = _TeeStream(sys.stdout)
+    sys.stdout = tee
+
+    # Amostragem de RAM em thread daemon (1 amostra/segundo).
+    # Usa o PID do processo atual — mais preciso do que medir um subprocesso
+    # filho, e permite incluir VRAM via torch.cuda.memory_allocated().
+    ram_samples: list = []
+    _stop_ram = threading.Event()
+
+    def _sample_ram() -> None:
+        proc = psutil.Process(os.getpid())
+        while not _stop_ram.is_set():
             try:
-                ram_samples.append(ps_proc.memory_info().rss / (1024 ** 2))
+                ram_samples.append(proc.memory_info().rss / (1024 ** 2))
             except psutil.NoSuchProcess:
                 break
+            _stop_ram.wait(timeout=1.0)
 
-        process.wait()
-        stdout = ''.join(output_lines)
-        stderr = ""
+    ram_thread = threading.Thread(target=_sample_ram, daemon=True)
+    ram_thread.start()
 
-    status = "success" if process.returncode == 0 else "failed"
+    status = "failed"
+    stdout = ""
+    stderr = ""
+    output_lines: list = []
+
+    try:
+        config = create_config(config_path)
+        parameters = init_all(config, gpu_list, None, "train")
+        run_train(parameters, config, gpu_list)
+        status = "success"
+    except Exception as exc:
+        logger.error("Treinamento falhou: %s", exc, exc_info=True)
+        stderr = str(exc)
+    finally:
+        _stop_ram.set()
+        ram_thread.join(timeout=5)
+        sys.stdout = tee.original
+        output_lines = tee.lines
+        stdout = "".join(output_lines)
 
     # -------- STOP ENERGY TRACKER --------
     emissions_kg = None
