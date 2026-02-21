@@ -3,7 +3,6 @@ import subprocess
 import configparser
 import time
 import uuid
-import os
 import json
 import csv
 import logging
@@ -13,6 +12,10 @@ from utils.paths import PathManager
 import torch
 import psutil
 from utils.util import print_system_info
+from tools.eval_tool import (
+    convert_test_results_to_task1, 
+    compute_metrics
+)
 
 try:
     from codecarbon import EmissionsTracker
@@ -109,7 +112,7 @@ def execute_experiment(config_path):
     if EmissionsTracker and mon.getboolean("enable_monitoring"):
         tracker = EmissionsTracker(
             project_name=exp["name"],
-            output_dir=_METRICS_DIR,
+            output_dir=_METRICS_DIR.as_posix(),
             log_level="error",
             output_file=f"EmissionsCO2_{device_type}_{datetime.now().strftime('%Y%m%d')}.csv"
         )
@@ -186,6 +189,72 @@ def execute_experiment(config_path):
         logger.warning("Profiling metrics not found, using estimation")
         total_gflops = estimate_bert_flops(seq_len=256)
 
+    # -------- EVAL METRICS --------
+    eval_metrics = {}
+    if status == "success":
+        try:
+            run_test_at_end = cfg.getboolean("eval", "run_test_at_end", fallback=False)
+            pool_out_mode = cfg.getboolean("output", "pool_out", fallback=False)
+            if pool_out_mode:
+                logger.info(
+                    "pool_out=True: modelo configurado para extração de embeddings (pipeline de "
+                    "dois estágios). Avaliação de métricas de recuperação pulada nesta etapa."
+                )
+            elif run_test_at_end:
+                model_out_path = Path(cfg.get("output", "model_path")) / cfg.get("output", "model_name")
+                labels_path = cfg.get("data", "test_labels_file", fallback="data/task1_test_labels_2024.json")
+                test_result_path = model_out_path / "test_results.json"
+
+                # Localiza o último checkpoint salvo (por número de época)
+                last_epoch = cfg.getint("train", "epoch") - 1
+                checkpoint_path = model_out_path / f"{last_epoch}.pkl"
+                if not checkpoint_path.exists():
+                    pkl_files = sorted(
+                        model_out_path.glob("*.pkl"),
+                        key=lambda p: int(p.stem) if p.stem.isdigit() else -1,
+                    )
+                    checkpoint_path = pkl_files[-1] if pkl_files else None
+
+                if checkpoint_path and checkpoint_path.exists() and Path(labels_path).exists():
+                    logger.info("Executando avaliação com checkpoint: %s", checkpoint_path)
+                    test_proc = subprocess.run(
+                        [
+                            "uv", "run", "python", "scripts/test.py",
+                            "-c", config_path,
+                            "-g", "0",
+                            "--checkpoint", str(checkpoint_path),
+                            "--result", str(test_result_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if test_proc.returncode == 0 and test_result_path.exists():
+                        task1_predicted = convert_test_results_to_task1(str(test_result_path))
+                        task1_path = model_out_path / "test_results_task1.json"
+                        with open(task1_path, "w") as f:
+                            json.dump(task1_predicted, f)
+                        eval_metrics = compute_metrics(labels_path, str(task1_path))
+                        logger.info(
+                            "Métricas de avaliação: P=%.4f  R=%.4f  F1=%.4f",
+                            eval_metrics["precision"],
+                            eval_metrics["recall"],
+                            eval_metrics["f1_score"],
+                        )
+                    else:
+                        logger.warning(
+                            "Subprocess de teste falhou (código %d). Métricas de avaliação indisponíveis.\n%s",
+                            test_proc.returncode,
+                            test_proc.stderr[-500:],
+                        )
+                else:
+                    logger.warning(
+                        "Checkpoint (%s) ou labels (%s) não encontrado. Métricas de avaliação indisponíveis.",
+                        checkpoint_path,
+                        labels_path,
+                    )
+        except Exception as exc:
+            logger.warning("Erro ao calcular métricas de avaliação: %s", exc)
+
     # =========================
     # JSON OUTPUT
     # =========================
@@ -229,6 +298,7 @@ def execute_experiment(config_path):
             "peak_ram_mb": peak_ram,
             "total_gflops": total_gflops
         },
+        "evaluation": eval_metrics if eval_metrics else None,
         "logs": {
             "stdout_tail": stdout[-1000:],
             "stderr_tail": stderr[-1000:]
@@ -267,7 +337,10 @@ def execute_experiment(config_path):
                 "avg_gflops_per_batch",
                 "total_gflops",
                 "status",
-                "timestamp"
+                "timestamp",
+                "eval_precision",
+                "eval_recall",
+                "eval_f1",
             ])
 
         writer.writerow([
@@ -284,10 +357,13 @@ def execute_experiment(config_path):
             emissions_kg,
             avg_ram,
             peak_ram,
-            avg_gflops_per_batch,            
+            avg_gflops_per_batch,
             total_gflops,
             status,
-            end_iso
+            end_iso,
+            f"{eval_metrics['precision']:.4f}" if eval_metrics else None,
+            f"{eval_metrics['recall']:.4f}" if eval_metrics else None,
+            f"{eval_metrics['f1_score']:.4f}" if eval_metrics else None,
         ])
 
     print(f"[OK] Wrapper finalizou em {exec_time:.2f} segundos - {exp['name']} ({status})")
