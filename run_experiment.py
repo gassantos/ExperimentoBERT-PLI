@@ -94,7 +94,7 @@ _, device_name, device_info = get_torch_device()
 # =========================
 # MAIN WRAPPER
 # =========================
-def execute_experiment(config_path):
+def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
     cfg = load_config(config_path)
 
     exp =   cfg["experiment"]
@@ -129,9 +129,10 @@ def execute_experiment(config_path):
     from tools.init_tool import init_all
     from tools.train_tool import train as run_train
 
-    # Reproduz o comportamento anterior: GPU 0 se disponível, caso contrário CPU.
-    # TODO: expor como parâmetro de execute_experiment para suporte multi-GPU.
-    gpu_list = [0] if torch.cuda.is_available() else []
+    # Usa as GPUs fornecidas pelo chamador; se não informado, seleciona GPU 0
+    # (quando disponível) ou executa em CPU — mantém compatibilidade retroativa.
+    if gpu_list is None:
+        gpu_list = [0] if torch.cuda.is_available() else []
 
     # _TeeStream: escreve simultaneamente no terminal e em um buffer em memória.
     # Permite capturar o stdout do loop de treino sem perder a saída em tempo real.
@@ -144,6 +145,8 @@ def execute_experiment(config_path):
             self.lines.append(text)
         def flush(self) -> None:
             self.original.flush()
+        def isatty(self) -> bool:         # exigido pelo transformers >=5.x (loading_report)
+            return getattr(self.original, "isatty", lambda: False)()
         def fileno(self) -> int:          # necessário para logging handlers
             return self.original.fileno()
 
@@ -445,8 +448,12 @@ def execute_experiment(config_path):
 # =========================
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) != 2:
-        print("Uso: python run_experiment_wrapper.py <config_path>")
+    if len(sys.argv) < 2:
+        print("Uso: uv run python run_experiment.py <config_path> [gpu_id ...]")
+        print("  Ex. (single GPU): uv run python run_experiment.py config/experiments/BertPLI.config 0")
+        print("  Ex. (multi-GPU):  uv run python run_experiment.py config/experiments/BertPLI.config 0 1")
+        print("  Ex. (CPU):        uv run python run_experiment.py config/experiments/BertPLI.config")
         exit(1)
 
-    execute_experiment(sys.argv[1])
+    _gpus = [int(g) for g in sys.argv[2:]] if len(sys.argv) > 2 else None
+    execute_experiment(sys.argv[1], gpu_list=_gpus)

@@ -191,16 +191,18 @@ def create_config_for_combination(
 def run_single_experiment(
     experiment_idx: int,
     config_path: str,
-    params: Dict[str, Any]
+    params: Dict[str, Any],
+    gpu_list: List[int] | None = None,
 ) -> Dict[str, Any]:
     """
     Executa um único experimento e retorna os resultados.
-    
+
     Args:
         experiment_idx: Índice do experimento
         config_path: Caminho do arquivo de configuração
         params: Parâmetros do experimento
-        
+        gpu_list: GPUs a utilizar (ex: [0] ou [1]). None = detecta automaticamente.
+
     Returns:
         Dicionário com resultados do experimento
     """
@@ -210,8 +212,8 @@ def run_single_experiment(
     logger.info(f"[{experiment_idx}] Iniciando experimento com parâmetros: {params}")
     
     try:
-        # Executa experimento
-        execute_experiment(config_path)
+        # Executa experimento nas GPUs designadas
+        execute_experiment(config_path, gpu_list=gpu_list)
         
         # Coleta resultados do arquivo JSON mais recente gerado
         metrics_dir = PathManager.BASE_DIR / "output" / "experiments" / "metrics"
@@ -249,17 +251,21 @@ def run_grid_search(
     base_config_path: str,
     grid_config: Dict[str, List[Any]],
     resume: bool = False,
-    parallel: int = 1
+    parallel: int = 1,
+    gpu_ids: List[int] | None = None,
 ) -> List[Dict[str, Any]]:
     """
     Executa busca em grade completa.
-    
+
     Args:
         base_config_path: Caminho da configuração base
         grid_config: Configuração da grade de hiperparâmetros
         resume: Se True, retoma execução anterior
         parallel: Número de processos paralelos (1 = sequencial)
-        
+        gpu_ids: Lista explícita de GPUs disponíveis para distribuição
+                 round-robin entre workers (ex: [0, 1, 2, 3]).
+                 None = detecta automaticamente via torch.cuda.
+
     Returns:
         Lista com resultados de todos os experimentos
     """
@@ -308,12 +314,28 @@ def run_grid_search(
                 logger.info("Execução cancelada pelo usuário")
                 sys.exit(0)
     
+    # Distribui GPUs entre workers em round-robin (um worker → uma GPU)
+    import torch as _torch
+    _available_gpus: List[int] = (
+        gpu_ids
+        if gpu_ids is not None
+        else list(range(_torch.cuda.device_count()))
+    )
+    def _gpu_for(idx: int) -> List[int] | None:
+        """Retorna [gpu_id] para o worker `idx`, ou None quando não há GPUs."""
+        if not _available_gpus:
+            return None
+        return [_available_gpus[idx % len(_available_gpus)]]
+
     # Executa experimentos
     if parallel > 1:
-        logger.info(f"Executando em modo paralelo com {parallel} workers")
+        logger.info(
+            "Executando em modo paralelo com %d workers | GPUs disponíveis: %s",
+            parallel, _available_gpus or "CPU"
+        )
         with ProcessPoolExecutor(max_workers=parallel) as executor:
             futures = {
-                executor.submit(run_single_experiment, idx, cfg, params): idx
+                executor.submit(run_single_experiment, idx, cfg, params, _gpu_for(idx)): idx
                 for idx, cfg, params in pending_experiments
             }
             
@@ -332,9 +354,9 @@ def run_grid_search(
                 except Exception as e:
                     logger.error(f"Erro ao executar experimento {idx}: {e}")
     else:
-        logger.info("Executando em modo sequencial")
+        logger.info("Executando em modo sequencial | GPUs disponíveis: %s", _available_gpus or "CPU")
         for idx, config_path, params in pending_experiments:
-            result = run_single_experiment(idx, config_path, params)
+            result = run_single_experiment(idx, config_path, params, _gpu_for(idx))
             all_results.append(result)
             completed_experiments.add(idx)
             
