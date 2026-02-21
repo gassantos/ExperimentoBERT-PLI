@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 import configparser
 import time
@@ -132,17 +133,22 @@ def execute_experiment(config_path):
     output_lines = []
 
     # Stream output in real-time
-    for line in process.stdout:
-        print(line, end='')  # Print to console
-        output_lines.append(line)  # Store for later
-        try:
-            ram_samples.append(ps_proc.memory_info().rss / (1024 ** 2))
-        except psutil.NoSuchProcess:
-            break
+    if process.stdout is None:
+        logger.error("Failed to capture subprocess output.")
+        pass
+    else:
+        
+        for line in process.stdout:
+            print(line, end='')  # Print to console
+            output_lines.append(line)  # Store for later
+            try:
+                ram_samples.append(ps_proc.memory_info().rss / (1024 ** 2))
+            except psutil.NoSuchProcess:
+                break
 
-    process.wait()
-    stdout = ''.join(output_lines)
-    stderr = ""
+        process.wait()
+        stdout = ''.join(output_lines)
+        stderr = ""
 
     status = "success" if process.returncode == 0 else "failed"
 
@@ -190,16 +196,43 @@ def execute_experiment(config_path):
         total_gflops = estimate_bert_flops(seq_len=256)
 
     # -------- EVAL METRICS --------
+    # Padrão de regex para extrair métricas do log de validação do train_tool
+    _VALID_RE = re.compile(
+        r"valid set: micro_prec_query=([\d.]+),\s*micro_recall_query=([\d.]+),\s*micro_f1_query=([\d.]+)"
+    )
+
     eval_metrics = {}
     if status == "success":
         try:
             run_test_at_end = cfg.getboolean("eval", "run_test_at_end", fallback=False)
             pool_out_mode = cfg.getboolean("output", "pool_out", fallback=False)
             if pool_out_mode:
-                logger.info(
-                    "pool_out=True: modelo configurado para extração de embeddings (pipeline de "
-                    "dois estágios). Avaliação de métricas de recuperação pulada nesta etapa."
-                )
+                # Pipeline de dois estágios: BERT como extrator de embeddings.
+                # As métricas de validação já foram computadas durante o treino e
+                # estão impressas no stdout capturado — extraímos a última ocorrência.
+                last_match = None
+                for line in output_lines:
+                    m = _VALID_RE.search(line)
+                    if m:
+                        last_match = m
+                if last_match:
+                    eval_metrics = {
+                        "precision": float(last_match.group(1)),
+                        "recall":    float(last_match.group(2)),
+                        "f1_score":  float(last_match.group(3)),
+                        "source":    "validation_log",
+                    }
+                    logger.info(
+                        "Métricas (validação final, pool_out): P=%.4f  R=%.4f  F1=%.4f",
+                        eval_metrics["precision"],
+                        eval_metrics["recall"],
+                        eval_metrics["f1_score"],
+                    )
+                else:
+                    logger.warning(
+                        "pool_out=True mas nenhuma linha 'valid set:' encontrada no stdout. "
+                        "Métricas de avaliação indisponíveis."
+                    )
             elif run_test_at_end:
                 model_out_path = Path(cfg.get("output", "model_path")) / cfg.get("output", "model_name")
                 labels_path = cfg.get("data", "test_labels_file", fallback="data/task1_test_labels_2024.json")
@@ -341,6 +374,7 @@ def execute_experiment(config_path):
                 "eval_precision",
                 "eval_recall",
                 "eval_f1",
+                "eval_source",
             ])
 
         writer.writerow([
@@ -364,6 +398,7 @@ def execute_experiment(config_path):
             f"{eval_metrics['precision']:.4f}" if eval_metrics else None,
             f"{eval_metrics['recall']:.4f}" if eval_metrics else None,
             f"{eval_metrics['f1_score']:.4f}" if eval_metrics else None,
+            eval_metrics.get("source") if eval_metrics else None,
         ])
 
     print(f"[OK] Wrapper finalizou em {exec_time:.2f} segundos - {exp['name']} ({status})")
