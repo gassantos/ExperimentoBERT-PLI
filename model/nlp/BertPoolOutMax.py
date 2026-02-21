@@ -38,19 +38,14 @@ class BertPoolOutMax(nn.Module):
                     lst = lst.view(self.step, self.max_para_c, -1)
                     # print('after view', lst.size())
                     lst = lst.permute(2, 0, 1)
-                    print('after permute', lst.size())
                     lst = lst.unsqueeze(0)
-                    print('after unsqueeze', lst.size())
                     max_out = self.maxpool(lst)
-                    print('after maxpool', max_out.size())
                     max_out = max_out.squeeze()
-                    print('after squeeze', max_out.size())
                     if max_out.dim() > 1:
                         max_out = max_out.transpose(0, 1)
                     else:
                         # If max_out is 1D, reshape it
                         max_out = max_out.unsqueeze(0)
-                    print('after transpose/reshape', max_out.size())
                     q_lst.extend(max_out.cpu().tolist())
                     #input('continue?')
                 # print(len(q_lst))
