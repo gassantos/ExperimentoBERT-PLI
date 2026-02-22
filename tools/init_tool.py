@@ -37,34 +37,37 @@ def init_all(config, gpu_list, checkpoint, mode, *args, **params):
         except Exception:
             logger.warning("No init_multi_gpu implemented in the model, use single gpu instead.")
 
-    try:
-        parameters = torch.load(checkpoint)
-        if mode == 'poolout':
-            model = load_state_keywise(model, parameters["model"])
+    if checkpoint is None:
+        logger.debug("Nenhum checkpoint fornecido, iniciando do zero.")
+    else:
+        try:
+            parameters = torch.load(checkpoint)
+            if mode == 'poolout':
+                model = load_state_keywise(model, parameters["model"])
 
-        else:
-            model.load_state_dict(parameters["model"])
-
-        if mode == "train":
-            trained_epoch = parameters["trained_epoch"]
-            if config.get("train", "optimizer") == parameters["optimizer_name"]:
-                optimizer.load_state_dict(parameters["optimizer"])
             else:
-                logger.warning("Optimizer changed, do not load parameters of optimizer.")
+                model.load_state_dict(parameters["model"])
 
-            if "global_step" in parameters:
-                global_step = parameters["global_step"]
+            if mode == "train":
+                trained_epoch = parameters["trained_epoch"]
+                if config.get("train", "optimizer") == parameters["optimizer_name"]:
+                    optimizer.load_state_dict(parameters["optimizer"])
+                else:
+                    logger.warning("Optimizer changed, do not load parameters of optimizer.")
 
-            if "warmup_scheduler" in parameters:
-                warmup_scheduler_state = parameters["warmup_scheduler"]
-                logger.info("Warmup scheduler state found in checkpoint.")
-    except Exception as e:
-        information = "Cannot load checkpoint file with error %s" % str(e)
-        if mode == "test":
-            logger.error(information)
-            raise e
-        else:
-            logger.warning(information)
+                if "global_step" in parameters:
+                    global_step = parameters["global_step"]
+
+                if "warmup_scheduler" in parameters:
+                    warmup_scheduler_state = parameters["warmup_scheduler"]
+                    logger.info("Warmup scheduler state found in checkpoint.")
+        except Exception as e:
+            information = "Cannot load checkpoint file with error %s" % str(e)
+            if mode == "test":
+                logger.error(information)
+                raise e
+            else:
+                logger.warning(information)
 
     result["model"] = model
     if mode == "train":

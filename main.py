@@ -32,15 +32,13 @@ try:
 except RuntimeError:
     pass
 
-from gridsearch.core import run_grid_search
+from gridsearch.core import run_grid_search, _LOGFILE
 from utils.paths import PathManager
+from utils.log_setup import setup_main_logging
 
-# Setup logging
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    datefmt='%m/%d/%Y %H:%M:%S',
-    level=logging.INFO
-)
+# Configura logging multiprocessing-safe antes de qualquer log.
+# QueueListener é iniciado aqui e parado no finally do main().
+_log_listener = setup_main_logging(_LOGFILE)
 logger = logging.getLogger(__name__)
 
 # =========================
@@ -234,6 +232,8 @@ Configurações padrão:
     except Exception as e:
         logger.error(f"Erro durante execução: {e}", exc_info=True)
         sys.exit(1)
+    finally:
+        _log_listener.stop()
 
 
 if __name__ == "__main__":

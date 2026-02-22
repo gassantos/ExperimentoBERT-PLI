@@ -38,6 +38,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 #     pass
 
 from utils.paths import PathManager
+from utils.log_setup import setup_main_logging, setup_worker_logging, _LOG_QUEUE
 from .utils import (
     check_memory_availability,
     filter_grid_config,
@@ -47,16 +48,8 @@ from .utils import (
 _TDATE = datetime.now().strftime("%Y-%m-%d")
 _LOGFILE = PathManager.LOGS_DIR / f"grid_search_{_TDATE}.log"
 
-# Configuração de logging
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - [%(name)s] - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(_LOGFILE, mode='a')
-    ]
-)
+# Logging configurado via setup_main_logging() em run_grid_search().
+# Não chamamos basicConfig aqui para evitar dupla inicialização nos workers.
 logger = logging.getLogger(__name__)
 
 
@@ -333,7 +326,11 @@ def run_grid_search(
             "Executando em modo paralelo com %d workers | GPUs disponíveis: %s",
             parallel, _available_gpus or "CPU"
         )
-        with ProcessPoolExecutor(max_workers=parallel) as executor:
+        with ProcessPoolExecutor(
+            max_workers=parallel,
+            initializer=setup_worker_logging,
+            initargs=(_LOG_QUEUE,),
+        ) as executor:
             futures = {
                 executor.submit(run_single_experiment, idx, cfg, params, _gpu_for(idx)): idx
                 for idx, cfg, params in pending_experiments

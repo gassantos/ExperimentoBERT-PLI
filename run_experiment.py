@@ -47,12 +47,8 @@ except ImportError:
 from warnings import filterwarnings
 filterwarnings("ignore", category=UserWarning)
 
-# Setup logging
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    datefmt='%m/%d/%Y %H:%M:%S',
-    level=logging.INFO
-)
+# Logging configurado pelo processo que invoca execute_experiment().
+# Aqui apenas obtemos o logger do módulo — sem basicConfig.
 logger = logging.getLogger(__name__)
 
 # Constantes de diretórios e arquivos
