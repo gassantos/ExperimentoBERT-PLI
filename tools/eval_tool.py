@@ -46,6 +46,8 @@ def output_value(epoch, mode, step, time, loss, info, end, config):
 def eval_micro_query(_result_list):
     label_dict = defaultdict(lambda: [])
     pred_dict = defaultdict(lambda: defaultdict(lambda: 0))
+    pair_correct = 0
+    total_pairs = len(_result_list)
     for item in _result_list:
         guid = item[0]
         label = int(item[1])
@@ -54,6 +56,8 @@ def eval_micro_query(_result_list):
         # if label > 0:
         label_dict[qid].append(cid)
         pred_dict[qid][cid] = pred
+        if pred == label:
+            pair_correct += 1
     assert (len(pred_dict) == len(label_dict))
 
     correct = 0
@@ -77,7 +81,8 @@ def eval_micro_query(_result_list):
         micro_f1_query = (2 * micro_prec_query * micro_recall_query) / (micro_prec_query + micro_recall_query)
     else:
         micro_f1_query = 0
-    return micro_prec_query, micro_recall_query, micro_f1_query
+    accuracy = pair_correct / total_pairs if total_pairs > 0 else 0.0
+    return micro_prec_query, micro_recall_query, micro_f1_query, accuracy
 
 
 def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode="valid"):
@@ -127,12 +132,13 @@ def valid(model, dataset, epoch, writer, config, gpu_list, output_function, mode
                       epoch)
 
     # eval results based on query micro F1
-    micro_prec_query, micro_recall_query, micro_f1_query = eval_micro_query(result)
+    micro_prec_query, micro_recall_query, micro_f1_query, accuracy = eval_micro_query(result)
     loss_tmp = total_loss / (step + 1)
-    print('valid set: micro_prec_query=%.4f, micro_recall_query=%.4f, micro_f1_query=%.4f' %
-          (micro_prec_query, micro_recall_query, micro_f1_query))
+    print('valid set: micro_prec_query=%.4f, micro_recall_query=%.4f, micro_f1_query=%.4f, accuracy=%.4f' %
+          (micro_prec_query, micro_recall_query, micro_f1_query, accuracy))
     model.train()
-    return {'precision': micro_prec_query, 'recall': micro_recall_query, 'f1': micro_f1_query, 'loss': loss_tmp}
+    return {'precision': micro_prec_query, 'recall': micro_recall_query, 'f1': micro_f1_query,
+            'accuracy': accuracy, 'loss': loss_tmp}
 
 
 # ---------------------------------------------------------------------------
@@ -251,11 +257,19 @@ def compute_metrics(labels_file: str, predicted_file: str, k_values: list = None
     recall = total_tp / total_actual if total_actual else 0.0
     f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) else 0.0
 
+    all_cases = set(labels) | set(predicted)
+    exact_match = sum(
+        1 for case in all_cases
+        if set(labels.get(case, [])) == set(predicted.get(case, []))
+    )
+    accuracy = exact_match / len(all_cases) if all_cases else 0.0
+
     results = {
         "precision": precision,
         "recall": recall,
         "f1_score": f1,
-        "total_cases": len(set(labels) | set(predicted)),
+        "accuracy": accuracy,
+        "total_cases": len(all_cases),
         "total_true_positives": total_tp,
         "total_predicted": total_pred,
         "total_actual": total_actual,
@@ -305,6 +319,7 @@ def evaluate_predictions(
     print(f"  Precision : {metrics['precision']:.4f}")
     print(f"  Recall    : {metrics['recall']:.4f}")
     print(f"  F1-Score  : {metrics['f1_score']:.4f}")
+    print(f"  Accuracy  : {metrics['accuracy']:.4f}")
     print()
 
     print("Métricas @k:")

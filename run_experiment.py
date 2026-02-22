@@ -89,7 +89,11 @@ def estimate_bert_flops(
 print_system_info()
 
 # info de processamento (CPU/GPU)
-_, device_name, device_info = get_torch_device()
+_torch_device_info = get_torch_device()
+device_name = _torch_device_info['name']
+
+# Tarifa de energia (USD/kWh) — configurável via variável de ambiente
+_ENERGY_COST_USD_PER_KWH = float(os.getenv("ENERGY_COST_USD_PER_KWH", "0.12"))
 
 # =========================
 # MAIN WRAPPER
@@ -198,10 +202,13 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
     if tracker:
         emissions_kg = tracker.stop()  # Retorna kg de CO2
         # Acessa os dados finais para obter energia em kWh
-        if hasattr(tracker, 'final_emissions_data'):
-            energy_kwh = tracker.final_emissions_data.energy_consumed  # kWh
-        elif hasattr(tracker, '_total_energy'):
-            energy_kwh = tracker._total_energy.kWh
+        try:
+            if hasattr(tracker, 'final_emissions_data') and tracker.final_emissions_data is not None:
+                energy_kwh = tracker.final_emissions_data.energy_consumed  # kWh
+            elif hasattr(tracker, '_total_energy') and tracker._total_energy is not None:
+                energy_kwh = tracker._total_energy.kWh
+        except Exception as e:
+            logger.warning("Não foi possível obter energy_kwh do tracker: %s", e)
 
     # Sincronização CUDA para garantir que todas as operações sejam 
     # concluídas antes de medir o tempo final
@@ -237,7 +244,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
     # -------- EVAL METRICS --------
     # Padrão de regex para extrair métricas do log de validação do train_tool
     _VALID_RE = re.compile(
-        r"valid set: micro_prec_query=([\d.]+),\s*micro_recall_query=([\d.]+),\s*micro_f1_query=([\d.]+)"
+        r"valid set: micro_prec_query=([\d.]+),\s*micro_recall_query=([\d.]+),\s*micro_f1_query=([\d.]+),\s*accuracy=([\d.]+)"
     )
 
     eval_metrics = {}
@@ -259,13 +266,15 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
                         "precision": float(last_match.group(1)),
                         "recall":    float(last_match.group(2)),
                         "f1_score":  float(last_match.group(3)),
+                        "accuracy":  float(last_match.group(4)),
                         "source":    "validation_log",
                     }
                     logger.info(
-                        "Métricas (validação final, pool_out): P=%.4f  R=%.4f  F1=%.4f",
+                        "Métricas (validação final, pool_out): P=%.4f  R=%.4f  F1=%.4f  Acc=%.4f",
                         eval_metrics["precision"],
                         eval_metrics["recall"],
                         eval_metrics["f1_score"],
+                        eval_metrics["accuracy"],
                     )
                 else:
                     logger.warning(
@@ -307,10 +316,11 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
                             json.dump(task1_predicted, f)
                         eval_metrics = compute_metrics(labels_path, str(task1_path))
                         logger.info(
-                            "Métricas de avaliação: P=%.4f  R=%.4f  F1=%.4f",
+                            "Métricas de avaliação: P=%.4f  R=%.4f  F1=%.4f  Acc=%.4f",
                             eval_metrics["precision"],
                             eval_metrics["recall"],
                             eval_metrics["f1_score"],
+                            eval_metrics.get("accuracy", 0.0),
                         )
                     else:
                         logger.warning(
@@ -340,6 +350,8 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
 
     json_filename = f"{id}_{optmzr}_{lr}_{bs}_{ep}_{DATE_EXEC}.json"
 
+    cost_usd = float(energy_kwh) * _ENERGY_COST_USD_PER_KWH if energy_kwh is not None else None
+
     result = {
         "experiment": {
             "id": experiment_id,
@@ -366,6 +378,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
             "train_time_sec": f"{exec_time:.2f}",
             "energy_kwh": energy_kwh,
             "emissions_kg_co2": emissions_kg,
+            "cost_usd": cost_usd,
             "avg_ram_mb": avg_ram,
             "peak_ram_mb": peak_ram,
             "total_gflops": total_gflops
@@ -404,6 +417,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
                 "train_time_sec",
                 "energy_kwh",
                 "emissions_kg",
+                "cost_usd",
                 "avg_ram_mb",
                 "peak_ram_mb",
                 "avg_gflops_per_batch",
@@ -413,6 +427,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
                 "eval_precision",
                 "eval_recall",
                 "eval_f1",
+                "eval_accuracy",
                 "eval_source",
             ])
 
@@ -428,6 +443,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
             f"{exec_time:.2f}",
             energy_kwh,
             emissions_kg,
+            f"{cost_usd:.6f}" if cost_usd is not None else None,
             avg_ram,
             peak_ram,
             avg_gflops_per_batch,
@@ -437,6 +453,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
             f"{eval_metrics['precision']:.4f}" if eval_metrics else None,
             f"{eval_metrics['recall']:.4f}" if eval_metrics else None,
             f"{eval_metrics['f1_score']:.4f}" if eval_metrics else None,
+            f"{eval_metrics['accuracy']:.4f}" if eval_metrics and 'accuracy' in eval_metrics else None,
             eval_metrics.get("source") if eval_metrics else None,
         ])
 
