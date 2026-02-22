@@ -24,11 +24,24 @@ class CollateFn:
     """Wrapper picklable para ``collate_fn``, necessário no multiprocessing do Windows."""
 
     def __init__(self, formatter_obj, config, mode):
+        """Args:
+            formatter_obj: Instância do formatter responsável por processar os dados.
+            config: ConfigParser com os parâmetros do experimento.
+            mode: Modo de operação (``'train'``, ``'valid'`` ou ``'test'``).
+        """
         self.formatter_obj = formatter_obj
         self.config = config
         self.mode = mode
 
     def __call__(self, data):
+        """Processa um batch de dados aplicando o formatter configurado.
+
+        Args:
+            data: Batch bruto retornado pelo ``Dataset``.
+
+        Returns:
+            Batch formatado pronto para o modelo.
+        """
         return self.formatter_obj.process(data, self.config, self.mode)
 
 

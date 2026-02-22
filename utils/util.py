@@ -1,3 +1,12 @@
+"""utils/util.py — Coleta e exibição de informações do sistema
+===========================================================
+Fornece funções para inspecionar recursos do ambiente de execução:
+CPU, RAM, GPU (via PyTorch/CUDA), disco e plataforma.
+
+Usado por ``run_experiment.py`` para registrar o contexto de hardware
+no início de cada experimento e pelo módulo ``utils.device`` para
+detecção do dispositivo de cómputo.
+"""
 import platform
 import psutil
 from datetime import datetime

@@ -1,3 +1,21 @@
+"""run_experiment.py — Motor de execução de experimentos BERT-PLI
+==============================================================
+Executa um experimento rastreável de ponta a ponta:
+
+- Carrega e aplica a configuração em cascata (default → experimento)
+- Mede tempo de execução, uso de RAM e emissões de CO₂ (via codecarbon)
+- Captura stdout do loop de treino sem bloquear a saída em tempo real
+- Persiste artefatos em JSON (por execução) e CSV (histórico acumulado)
+
+Uso direto::
+
+    uv run python run_experiment.py config/experiments/BertPLI.config [gpu_id ...]
+
+Uso programático::
+
+    from run_experiment import execute_experiment
+    execute_experiment("config/experiments/BertPLI.config", gpu_list=[0, 1])
+"""
 from pathlib import Path
 import os
 import re
@@ -44,17 +62,33 @@ PathManager.ensure_dir(_METRICS_DIR)
 # =========================
 # UTILS
 # =========================
-def now_iso():
+def now_iso() -> str:
+    """Retorna o instante atual em formato ISO 8601 com timezone UTC."""
     return datetime.now(timezone.utc).isoformat()
 
 
-def load_config(path):
+def load_config(path: str) -> configparser.ConfigParser:
+    """Lê e retorna um ConfigParser padrão da stdlib a partir do arquivo.
+
+    Args:
+        path: Caminho para o arquivo ``.config``.
+
+    Returns:
+        ``configparser.ConfigParser`` com as seções e chaves carregadas.
+    """
     cfg = configparser.ConfigParser()
     cfg.read(path)
     return cfg
 
 
-def get_accelerator_type():
+def get_accelerator_type() -> str:
+    """Detecta o tipo de acelerador disponível no ambiente atual.
+
+    Prioridade de detecção: GPU (CUDA) → TPU (torch_xla) → CPU.
+
+    Returns:
+        ``'GPU'``, ``'TPU'`` ou ``'CPU'``.
+    """
     # Check for GPU
     try:
         if torch.cuda.is_available():
@@ -73,11 +107,25 @@ def get_accelerator_type():
     return 'CPU'
 
 def estimate_bert_flops(
-    seq_len,
-    hidden_size=768,
-    num_layers=12,
-    num_heads=12
-):
+    seq_len: int,
+    hidden_size: int = 768,
+    num_layers: int = 12,
+    num_heads: int = 12,
+) -> float:
+    """Estima os GFLOPs de uma passagem forward pelo BERT.
+
+    A estimativa cobre atenção multi-head (QKV + produto attention)
+    e os dois blocos FFN por camada.
+
+    Args:
+        seq_len: Comprimento da sequência de tokens.
+        hidden_size: Dimensão oculta do modelo. Padrão: 768 (BERT-base).
+        num_layers: Número de camadas Transformer. Padrão: 12.
+        num_heads: Número de cabeças de atenção. Padrão: 12.
+
+    Returns:
+        GFLOPs estimados por forward pass.
+    """
     attention = (
         4 * seq_len * hidden_size * hidden_size +
         2 * num_heads * seq_len * seq_len * (hidden_size // num_heads)
@@ -98,7 +146,24 @@ _ENERGY_COST_USD_PER_KWH = float(os.getenv("ENERGY_COST_USD_PER_KWH", "0.12"))
 # =========================
 # MAIN WRAPPER
 # =========================
-def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
+def execute_experiment(config_path: str, gpu_list: list[int] | None = None) -> None:
+    """Executa um experimento completo de forma rastreável.
+
+    Realiza treino in-process com captura de stdout, amostragem contínua
+    de RAM, rastreamento de emissões de CO₂ (opcional) e persistência
+    de artefatos em JSON e CSV.
+
+    Args:
+        config_path: Caminho para o arquivo ``.config`` do experimento.
+        gpu_list: Lista de IDs de GPU a utilizar. ``None`` seleciona GPU 0
+            se disponível, ou CPU caso contrário.
+
+    Side effects:
+        - Escreve ``output/experiments/metrics/<nome>_<data>.json``
+        - Acrescenta linha em ``output/experiments/metrics/experiment_summary_<data>.csv``
+        - Acrescenta linha em ``output/experiments/metrics/EmissionsCO2_<device>_<data>.csv``
+          (quando ``enable_monitoring = true``)
+    """
     cfg = load_config(config_path)
 
     exp =   cfg["experiment"]
@@ -141,17 +206,32 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
     # _TeeStream: escreve simultaneamente no terminal e em um buffer em memória.
     # Permite capturar o stdout do loop de treino sem perder a saída em tempo real.
     class _TeeStream:
-        def __init__(self, original):
+        """Stream que escreve simultaneamente no terminal e em um buffer em memória.
+
+        Permite capturar o stdout do loop de treino sem perder a saída em
+        tempo real. Implementa a interface mínima exigida pelo Python e pelo
+        Transformers ≥5.x (``write``, ``flush``, ``isatty``, ``fileno``).
+        """
+
+        def __init__(self, original) -> None:
+            """Args:
+                original: Stream original (normalmente ``sys.stdout``) a ser
+                    mantido em paralelo com a captura em memória.
+            """
             self.original = original
             self.lines: list = []
         def write(self, text: str) -> None:
+            """Escreve ``text`` no stream original e acrescenta à lista ``lines``."""
             self.original.write(text)
             self.lines.append(text)
         def flush(self) -> None:
+            """Propaga flush para o stream original."""
             self.original.flush()
         def isatty(self) -> bool:         # exigido pelo transformers >=5.x (loading_report)
+            """Delega ``isatty()`` ao stream original; retorna ``False`` se não implementado."""
             return getattr(self.original, "isatty", lambda: False)()
         def fileno(self) -> int:          # necessário para logging handlers
+            """Retorna o descritor de arquivo do stream original."""
             return self.original.fileno()
 
     tee = _TeeStream(sys.stdout)
@@ -164,6 +244,12 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None):
     _stop_ram = threading.Event()
 
     def _sample_ram() -> None:
+        """Amostra o uso de RAM (RSS) do processo atual a cada segundo.
+
+        Executa em loop até que ``_stop_ram`` seja acionado. Projetada para
+        ser executada em thread daemon — termina silenciosamente se o
+        processo pai encerrar.
+        """
         proc = psutil.Process(os.getpid())
         while not _stop_ram.is_set():
             try:

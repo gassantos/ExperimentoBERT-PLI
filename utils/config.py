@@ -22,11 +22,19 @@ class ConfigParser:
     """
 
     def __init__(self, *args, **params):
+        """Inicializa os três parsers independentes (default, local e experimento)."""
         self.default_config = configparser.RawConfigParser(*args, **params)
         self.local_config = configparser.RawConfigParser(*args, **params)
         self.config = configparser.RawConfigParser(*args, **params)
 
     def read(self, filenames, encoding=None):
+        """Carrega os três níveis de configuração em cascata.
+
+        Ordem de leitura:
+        1. ``config/default.config`` — valores base do projeto
+        2. ``config/default_local.config`` (se existir) ou ``default.config`` — overrides locais
+        3. ``filenames`` — configuração específica do experimento
+        """
         if os.path.exists("config/default_local.config"):
             self.local_config.read("config/default_local.config", encoding=encoding)
         else:
@@ -36,7 +44,18 @@ class ConfigParser:
         self.config.read(filenames, encoding=encoding)
 
 
-def _build_func(func_name):
+def _build_func(func_name: str):
+    """Constrói um método delegador com fallback em cascata para ``ConfigParser``.
+
+    O método gerado tenta resolver a chamada na seguinte ordem:
+    configuração do experimento → configuração local → configuração default.
+
+    Args:
+        func_name: Nome do método de ``configparser.RawConfigParser`` a ser encapsulado.
+
+    Returns:
+        Função com a mesma assinatura do método original e comportamento de fallback.
+    """
     @functools.wraps(getattr(configparser.RawConfigParser, func_name))
     def func(self, *args, **kwargs):
         try:

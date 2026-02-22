@@ -636,6 +636,14 @@ def generate_summary_report(analysis: Dict[str, Any]) -> str:
 # ============================================================================
 
 def main():
+    """Ponto de entrada CLI para execução de grid search via ``python -m gridsearch.core``.
+
+    Analisa argumentos de linha de comando e despacha para uma das operações:
+
+    - Busca em grade completa (``--config`` + ``--search-config``)
+    - Retomada de execução interrompida (``--resume``)
+    - Análise de resultados existentes (``--analyze-only``)
+    """
     parser = argparse.ArgumentParser(
         description="Grid Search para hiperparâmetros do BERT-PLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
