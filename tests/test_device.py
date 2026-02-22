@@ -66,7 +66,11 @@ class TestGetDevice:
 
     def test_cuda_branch_when_cuda_available(self):
         """Retorna device 'cuda' quando torch.cuda.is_available() é True."""
-        with patch("torch.cuda.is_available", return_value=True):
+        mock_props = MagicMock()
+        mock_props.total_memory = 8 * 1e9
+        with patch("torch.cuda.is_available", return_value=True), \
+             patch("torch.cuda.get_device_name", return_value="Tesla T4"), \
+             patch("torch.cuda.get_device_properties", return_value=mock_props):
             device = dev.get_device()
         assert device is not None
         assert device.type == "cuda"

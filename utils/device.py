@@ -19,16 +19,14 @@ logger = logging.getLogger(__name__)
 
 try:
     import torch  # type: ignore[no-redef]
-    print("PyTorch foi habilitado!")
 
     try:
         import torch_xla.core.xla_model as xm  # type: ignore[no-redef]
         _XLA_AVAILABLE = True
-        print("Torch_XLA habilitado!")
     except (ImportError, OSError) as e:
         xm = None  # type: ignore[assignment]
         _XLA_AVAILABLE = False
-        print(f"Torch_XLA não disponível: {e}")
+        logger.warning(f"Torch_XLA não disponível: {e}")
 
 except (ImportError, OSError):
     torch = None  # type: ignore[assignment]
