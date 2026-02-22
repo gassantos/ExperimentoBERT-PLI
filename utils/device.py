@@ -1,29 +1,37 @@
 """
 Módulo para detecção automática de dispositivo de computação.
-Suporta CUDA (NVIDIA), MPS (Apple Silicon) e CPU.
+Suporta CUDA (NVIDIA), TPU (TorchXLA), MPS (Apple Silicon) e CPU.
 """
+from __future__ import annotations
+
 import platform
 import logging
+from typing import TYPE_CHECKING
+
+# Importações apenas para o analisador de tipos (Pylance/mypy).
+# Em runtime TYPE_CHECKING é sempre False, portanto estes imports
+# não geram custo de inicialização nem dependência obrigatória.
+if TYPE_CHECKING:
+    import torch
+    import torch_xla.core.xla_model as xm  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
 try:
-    import torch
-    _TORCH_AVAILABLE = True
+    import torch  # type: ignore[no-redef]
+    print("PyTorch foi habilitado!")
 
-    if _TORCH_AVAILABLE:
-        print("PyTorch foi habilitado!")
-        try:
-            import torch_xla.core.xla_model as xm
-            _XLA_AVAILABLE = True
-            print("Torch_XLA habilitado!")
-        except (ImportError, OSError):
-            xm = None
-            _XLA_AVAILABLE = False
-            print("Torch_XLA não disponível!")
+    try:
+        import torch_xla.core.xla_model as xm  # type: ignore[no-redef]
+        _XLA_AVAILABLE = True
+        print("Torch_XLA habilitado!")
+    except (ImportError, OSError) as e:
+        xm = None  # type: ignore[assignment]
+        _XLA_AVAILABLE = False
+        print(f"Torch_XLA não disponível: {e}")
+
 except (ImportError, OSError):
-    torch = None
-    _TORCH_AVAILABLE = False
+    torch = None  # type: ignore[assignment]
     logger.warning("PyTorch não disponível neste ambiente")
 
 
@@ -37,10 +45,10 @@ def get_device(prefer_cpu: bool = False):
     Returns:
         torch.device: Device otimizado para a plataforma atual, ou None se torch indisponível
     """
-    if not _TORCH_AVAILABLE:
+    if torch is None:
         logger.warning("PyTorch não disponível. Retornando device=None.")
         return None
-    
+
     if prefer_cpu:
         logger.info("CPU mode forced by user")
         return torch.device("cpu")
@@ -79,7 +87,7 @@ def get_device_info():
     Returns:
         dict: Informações sobre dispositivo, memória e capacidade
     """
-    if not _TORCH_AVAILABLE:
+    if torch is None:
         return {
             "device_type": "unavailable",
             "platform": platform.system(),
@@ -89,6 +97,7 @@ def get_device_info():
             "error": "PyTorch não disponível neste ambiente"
         }
     device = get_device()
+    assert device is not None  # torch is not None, portanto get_device() sempre retorna um device
     info = {
         "device_type": device.type,
         "platform": platform.system(),
@@ -121,7 +130,7 @@ def set_device_optimization(device):
     Args:
         device: torch.device para otimizar
     """
-    if not _TORCH_AVAILABLE or device is None:
+    if torch is None or device is None:
         logger.warning("PyTorch não disponível. Otimizações de device ignoradas.")
         return
     if device.type == "cuda":
@@ -140,19 +149,19 @@ def set_device_optimization(device):
 
 def get_torch_device() -> dict:
     """Retorna o dispositivo PyTorch disponível (CPU, GPU ou TPU)."""
-    if _XLA_AVAILABLE and len(xm.get_xla_supported_devices()) > 0:
+    if xm is not None and _XLA_AVAILABLE and len(xm.get_xla_supported_devices()) > 0:
         return {
             'type': 'TPU',
             'name': xm.xla_device_kind(),
             'device': xm.xla_device()
         }
-    if _TORCH_AVAILABLE and torch.cuda.is_available():
+    if torch is not None and torch.cuda.is_available():
         return {
             'type': 'GPU',
             'name': torch.cuda.get_device_name(0),
             'device': torch.device('cuda')
         }
-    if _TORCH_AVAILABLE:
+    if torch is not None:
         return {
             'type': 'CPU',
             'name': platform.processor(),
