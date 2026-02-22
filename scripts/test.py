@@ -37,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """Ponto de entrada do CLI ``bert-pli-test``.
+
+    Inicializa o modelo a partir de ``--checkpoint`` e ``--config``,
+    executa a inferência na partição configurada e grava as predições
+    em ``--result`` no formato JSON.
+    """
     parser = argparse.ArgumentParser(description="Executa inferência com modelo BERT-PLI.")
     parser.add_argument("--config", "-c", help="Arquivo de configuração", required=True)
     parser.add_argument("--gpu", "-g", help="IDs de GPU separados por vírgula")

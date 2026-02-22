@@ -33,6 +33,15 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """Ponto de entrada do CLI ``bert-pli-parse-results``.
+
+    Modos de operação:
+
+    - ``evaluate``: compara predições contra ground truth e exibe métricas.
+    - padrão (sem subcomando): converte resultados GRU/LSTM para o formato
+      task1 da COLIEE, usando a variável de ambiente ``GRU`` para escolher
+      entre prefixos ``gru`` e ``lstm``.
+    """
     parser = argparse.ArgumentParser(
         description="Avalia predições ou converte resultados GRU/LSTM para o formato task1."
     )

@@ -41,6 +41,12 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """Ponto de entrada do CLI ``bert-pli-poolout``.
+
+    Carrega um checkpoint de ``BertPoolOutMax``, processa todos os pares de
+    parágrafos configurados e salva os embeddings em arquivo JSON.
+    Argumentos: ``--config``, ``--gpu``, ``--checkpoint``, ``--result``.
+    """
     parser = argparse.ArgumentParser(description="Extrai embeddings pool-out de parágrafos.")
     parser.add_argument("--config", "-c", help="Arquivo de configuração", required=True)
     parser.add_argument("--gpu", "-g", help="IDs de GPU separados por vírgula")

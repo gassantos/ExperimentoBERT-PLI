@@ -1,4 +1,14 @@
 # -*- coding: utf-8 -*-
+"""Formatador para o fine-tuning com BertPoint (Etapa 2 do BERT-PLI).
+
+Tokeniza pares de texto (parágrafo da query, parágrafo do candidato)
+para classificação binária com BERT.  Suporta dois formatos de entrada:
+
+- **Plano**: dicionário com ``text_a``, ``text_b`` e ``label``.
+- **Expandido** (``q_paras``/``c_paras``): todas as combinações de parágrafos
+  são geradas automaticamente com GUIDs únicos ``{base}___{qi}_{ci}`` para
+  permitir agregação posterior na fase de pool-out.
+"""
 __author__ = 'yshao'
 
 import torch
@@ -13,7 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 class BertPairTextFormatter(BasicFormatter):
+    """Formata batches para o modelo :class:`model.nlp.BertPoint.BertPoint`."""
+
     def __init__(self, config, mode, *args, **params):
+        """Inicializa o tokenizador e os limites de parágrafos.
+
+        Carrega ``AutoTokenizer`` a partir de ``bert_path`` (``[model]``).
+        ``max_para_q`` e ``max_para_c`` são lidos com fallback para 16/32
+        caso não estejam presentes na configuração.
+        """
         super().__init__(config, mode, *args, **params)
         self.tokenizer = AutoTokenizer.from_pretrained(config.get("model", "bert_path"))
         self.max_len = config.getint("data", "max_seq_length")
@@ -58,6 +76,22 @@ class BertPairTextFormatter(BasicFormatter):
         return items
 
     def process(self, data, config, mode, *args, **params):
+        """Tokeniza pares de texto e monta tensores para BertPoint.
+
+        Itens no formato expandido (``q_paras``/``c_paras``) são desdobrados
+        em todos os pares (qi, ci) via :meth:`_expand_para_items`.
+
+        Args:
+            data: lista de exemplos (dicionários planos ou com ``q_paras``/
+                ``c_paras``).
+            config: configuração do experimento.
+            mode: ``'train'``, ``'valid'`` ou ``'test'``.
+
+        Returns:
+            Dicionário com ``guid``, ``input_ids``, ``attention_mask``,
+            ``token_type_ids`` (todos ``LongTensor [B, L]``) e ``label``
+            (exceto em ``test``).
+        """
         guids = []
         input_ids = []
         attention_mask = []

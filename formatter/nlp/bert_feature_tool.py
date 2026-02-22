@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+"""Utilitários de construção de features BERT para pares de texto.
+
+Contém a lógica de tokenização, truncamento, padding e montagem dos
+vetores ``input_ids``, ``input_mask`` e ``segment_ids`` usada pelos
+formatadores :mod:`formatter.nlp.BertPairTextFormatter` e
+:mod:`formatter.nlp.BertDocParaFormatter`.
+"""
 __author__ = 'yshao'
 
 
@@ -26,6 +33,38 @@ def example_item_to_feature(example, max_seq_length,
                                  sequence_a_segment_id=0, sequence_b_segment_id=1,
                                  cls_token_segment_id=1, pad_token_segment_id=0,
                                  mask_padding_with_zero=True):
+    """Converte um exemplo em features numéricas para modelos BERT.
+
+    Tokeniza ``text_a`` (e opcionalmente ``text_b``), aplica truncamento,
+    adiciona tokens especiais (``[CLS]``, ``[SEP]``), converte para IDs e
+    completa com padding até ``max_seq_length``.
+
+    Args:
+        example: dicionário com ``text_a``, ``text_b`` (opcional) e ``label``
+            (ignorado em modo ``test``).
+        max_seq_length: comprimento máximo (em tokens) incluindo especiais.
+        tokenizer: instância de ``transformers.PreTrainedTokenizer``.
+        output_mode: ``'classification'`` (label inteiro) ou ``'regression'``
+            (label float).
+        mode: se ``'test'``, ``label_id`` é omitido do retorno.
+        cls_token_at_end: se ``True``, coloca ``[CLS]`` no final.
+        pad_on_left: se ``True``, aplica padding à esquerda.
+        cls_token: token de início (padrão ``'[CLS]'``).
+        sep_token: token separador (padrão ``'[SEP]'``).
+        pad_token: ID usado para padding (padrão ``0``).
+        sequence_a_segment_id: segment ID para a sequência A (padrão ``0``).
+        sequence_b_segment_id: segment ID para a sequência B (padrão ``1``).
+        cls_token_segment_id: segment ID do token CLS (padrão ``1``).
+        pad_token_segment_id: segment ID dos tokens de padding (padrão ``0``).
+        mask_padding_with_zero: se ``True``, padding recebe máscara ``0``.
+
+    Returns:
+        Dicionário com:
+          - ``input_ids``: lista de inteiros de tamanho ``max_seq_length``.
+          - ``input_mask``: máscara de atenção (1 real, 0 padding).
+          - ``segment_ids``: IDs de segmento A/B.
+          - ``label_id``: rótulo int ou float (ausente em modo ``test``).
+    """
 
     tokens_a = tokenizer.tokenize(example['text_a'])
 

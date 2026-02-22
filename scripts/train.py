@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """Ponto de entrada do CLI ``bert-pli-train``.
+
+    Lê ``--config``, seleciona GPUs via ``--gpu`` e inicia (ou retoma de
+    ``--checkpoint``) o pipeline de fine-tuning do modelo configurado.
+    """
     parser = argparse.ArgumentParser(description="Treina um modelo BERT-PLI.")
     parser.add_argument("--config", "-c", help="Arquivo de configuração", required=True)
     parser.add_argument("--gpu", "-g", help="IDs de GPU separados por vírgula (ex: 0,1)")

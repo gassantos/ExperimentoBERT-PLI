@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """Ponto de entrada do CLI ``bert-pli-poolout-to-train``.
+
+    Combina o arquivo de parágrafos originais (``--paras-file``) com os
+    embeddings extraídos (``--poolout-file``) e grava o resultado em
+    ``--result``, pronto para treino do AttentionRNN.
+    """
     parser = argparse.ArgumentParser(
         description="Converte saída de pool-out para formato de treino RNN."
     )

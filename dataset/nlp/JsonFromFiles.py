@@ -1,3 +1,13 @@
+"""Dataset que carrega exemplos a partir de arquivos JSON ou JSONL.
+
+Suporta dois formatos:
+
+- ``single``: cada arquivo contém uma lista JSON completa.
+- ``jsonl`` (padrão): cada linha é um objeto JSON independente (JSONL).
+
+Os exemplos podem ser carregados em memória (``load_into_mem = true``) ou
+acessados de forma lazy via busca binária sobre prefixos de contagem de linhas.
+"""
 import json
 from pathlib import Path
 from torch.utils.data import Dataset
@@ -6,7 +16,26 @@ from tools.dataset_tool import dfs_search
 
 
 class JsonFromFilesDataset(Dataset):
+    """Dataset PyTorch que lê exemplos de um ou mais arquivos JSON/JSONL.
+
+    Suporta:
+
+    - Múltiplos arquivos concatenados virtualmente.
+    - Modo em memória (``load_into_mem = true``) para datasets pequenos.
+    - Acesso lazy com busca binária para datasets grandes.
+    - Formato JSON completo por arquivo (``json_format = single``) ou JSONL.
+    """
+
     def __init__(self, config, mode, encoding="utf8", *args, **params):
+        """Inicializa o dataset a partir das configurações da secção ``[data]``.
+
+        Args:
+            config: instância de :class:`utils.config.ConfigParser` com as
+                chaves ``{mode}_data_path``, ``{mode}_file_list``,
+                ``recursive``, ``load_into_mem`` e ``json_format``.
+            mode: partição do dataset — ``'train'``, ``'valid'`` ou ``'test'``.
+            encoding: codificação dos arquivos (padrão: ``'utf8'``).
+        """
         self.config = config
         self.mode = mode
         self.file_list = []
@@ -65,6 +94,17 @@ class JsonFromFilesDataset(Dataset):
             self.total = self.prefix_file_cnt[-1]
 
     def get_file_id(self, item):
+        """Retorna o índice do arquivo que contém o exemplo de posição *item*.
+
+        Utiliza busca binária sobre ``self.prefix_file_cnt`` (prefixo de somas
+        de tamanhos), operando em O(log F) onde F é o número de arquivos.
+
+        Args:
+            item: índice global do exemplo no dataset concatenado.
+
+        Returns:
+            Índice do arquivo em ``self.file_list``.
+        """
         l = 0
         r = len(self.prefix_file_cnt)
         while l + 1 != r:
@@ -77,6 +117,18 @@ class JsonFromFilesDataset(Dataset):
         return l
 
     def __getitem__(self, item):
+        """Retorna o exemplo de índice *item*.
+
+        Se ``load_into_mem`` estiver ativo, acessa ``self.data[item]``
+        diretamente; caso contrário, determina o arquivo via
+        :meth:`get_file_id` e lê o item correspondente do disco.
+
+        Args:
+            item: índice do exemplo (0-based).
+
+        Returns:
+            Dicionário com os campos do exemplo JSON.
+        """
         if self.load_mem:
             return self.data[item]
         else:
@@ -111,6 +163,7 @@ class JsonFromFilesDataset(Dataset):
                 return data
 
     def __len__(self):
+        """Retorna o número total de exemplos no dataset."""
         if self.load_mem:
             return len(self.data)
         else:

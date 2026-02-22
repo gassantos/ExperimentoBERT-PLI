@@ -1,4 +1,15 @@
 # -*- coding: utf-8 -*-
+"""Formatador para a extração de embeddings com BertPoolOutMax (Etapa 3 do BERT-PLI).
+
+Para cada par caso-decisão, cria uma matriz de tokenizações
+``[M, N, L]`` com todos os pares de parágrafos (qi, ci), onde:
+
+- *M* = número de parágrafos da query (``max_para_q``)
+- *N* = número de parágrafos do documento candidato (``max_para_c``)
+- *L* = comprimento máximo de sequência (``max_seq_length``)
+
+Linhas/colunas faltantes são preenchidas com zeros.
+"""
 __author__ = 'yshao'
 
 import torch
@@ -10,7 +21,14 @@ from .bert_feature_tool import example_item_to_feature
 
 
 class BertDocParaFormatter(BasicFormatter):
+    """Formata batches para o modelo :class:`model.nlp.BertPoolOutMax.BertPoolOutMax`."""
+
     def __init__(self, config, mode, *args, **params):
+        """Inicializa tokenizador e limites de parágrafos.
+
+        Carrega ``AutoTokenizer`` a partir de ``bert_path`` e lê
+        ``max_seq_length``, ``max_para_c`` e ``max_para_q`` da configuração.
+        """
         super().__init__(config, mode, *args, **params)
         self.tokenizer = AutoTokenizer.from_pretrained(config.get("model", "bert_path"))
         self.max_len = config.getint("data", "max_seq_length")
@@ -20,6 +38,23 @@ class BertDocParaFormatter(BasicFormatter):
         self.max_para_q = config.getint('model', 'max_para_q')
 
     def process(self, data, config, mode, *args, **params):
+        """Tokeniza todos os pares (qi, ci) e monta tensores 4-D.
+
+        Para cada exemplo do batch gera uma grade de tokens de tamanho
+        ``[M, N, L]``.  Linhas ou colunas ausentes (documentos com menos
+        parágrafos que o máximo) são preenchidas com tensores zero.
+
+        Args:
+            data: lista de dicionários com ``guid``, ``label``, ``q_paras``
+                e ``c_paras``.
+            config: configuração do experimento.
+            mode: ``'train'``, ``'valid'`` ou ``'test'``.
+
+        Returns:
+            Dicionário com tensores ``input_ids``, ``attention_mask`` e
+            ``token_type_ids`` de forma ``[B, M, N, L]``, mais ``guid`` e
+            ``label`` (exceto em ``test``).
+        """
         # query_para_num=m, doc_para_num = n, matrix = m * n
         guids = []
         input_ids = []
