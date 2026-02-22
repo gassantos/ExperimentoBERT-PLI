@@ -1,4 +1,0 @@
-spacy==3.6.1
-ray==2.4.0
-transformers==4.18.0
-sentence-transformers==2.2.2
