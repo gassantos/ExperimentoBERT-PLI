@@ -1,199 +1,404 @@
 # BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval
 
+![Python](https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-%E2%89%A52.9.0-EE4C2C?logo=pytorch&logoColor=white)
+![Transformers](https://img.shields.io/badge/transformers-%E2%89%A55.2.0-FFD21E?logo=huggingface&logoColor=black)
+![codecarbon](https://img.shields.io/badge/codecarbon-%E2%89%A53.2.2-4CAF50?logo=leaflet&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen?logo=pytest&logoColor=white)
+
 Para executar no **Google Colab**, acesse:
 
 - [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1ptcAKCC_f7lX5y9B_zJ3iisO11W1Ny2K)
 
-## Quick Start with Synthetic Data
+## Instalação
 
-This repository includes synthetic legal case data for educational purposes located in the `data/` directory:
+O projeto usa [`uv`](https://docs.astral.sh/uv/) como gerenciador de ambiente e dependências. O `requirements.txt` presente no repositório é gerado automaticamente — **não o edite diretamente**; a fonte de verdade é o `pyproject.toml`.
 
-- `train_task2.json` - 30 paragraph pairs for BERT fine-tuning
-- `valid_task2.json` - 6 paragraph pairs for validation
-- `test_task1.json` - 10 documents for testing
-- `test_paragraphs_processed_data.json` - Processed data for poolout conversion
-- `task1_test_labels_2024.json` - Labels for evaluation
+### Pré-requisitos
 
-### Step-by-Step Execution
+- Python ≥ 3.11
+- [`uv`](https://docs.astral.sh/uv/getting-started/installation/) instalado
+- (Opcional) NVIDIA GPU com CUDA 12.8 para aceleração
 
-**Stage 1: BM25 Selection**: The BM25 score is calculated according to the standard [scoring function](https://en.wikipedia.org/wiki/Okapi_BM25). We set $k_1=1.5$, $b=0.75$. Calculate BM25 scores separately.
-
-**Stage 2:Fine-tune BERT for paragraph pair classification**
+### Passos
 
 ```bash
-uv run python train.py -c config/nlp/BertPoint.config -g 0
+# 1. Clone o repositório
+git clone https://github.com/gassantos/ExperimentoBERT-PLI.git
+cd ExperimentoBERT-PLI
+
+# 2. Crie o ambiente virtual e instale as dependências de produção
+uv sync
+
+# 3. (Opcional) Instale também as dependências de desenvolvimento (pytest, etc.)
+uv sync --group dev
 ```
 
-**Stage 3:Extract paragraph-level interactions**
+> **Plataforma Linux (CUDA 12.8):** o `pyproject.toml` já configura automaticamente o índice `pytorch-cu128`. Em macOS/Windows, o índice `pytorch-cpu` é selecionado sem necessidade de configuração adicional.
+
+### Verificar instalação
 
 ```bash
-uv run python poolout.py -c config/nlp/BertPoolOutMax.config -g 0 --checkpoint output/checkpoints/bert_finetuned/1.pkl --result output/results/pool_out_max.json
+uv run python -c "import torch; print(torch.__version__, '| CUDA:', torch.cuda.is_available())"
 ```
 
-**Stage 3.1:Convert poolout results to training format**
+---
+
+## Testes
+
+A suite de testes cobre os componentes críticos do pipeline de treinamento (101 testes pytest).
 
 ```bash
-uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/train_poolout.json
+# Suite completa
+uv run --group dev pytest
+
+# Com relatório de cobertura por módulo
+uv run --group dev pytest --cov=. --cov-report=term-missing
+
+# Arquivo específico
+uv run --group dev pytest tests/test_optimizer.py -v
+
+# Classe específica
+uv run --group dev pytest tests/test_warmup_scheduler.py::TestSchedulerLRBehavior -v
 ```
 
-**Stage 3.2:Convert poolout results to validation format**
+| Arquivo de teste | Cobertura |
+|---|---|
+| `test_optimizer.py` | Tipos e hiperparâmetros de todos os otimizadores (Adam, AdamW, SGD, bert_adam) |
+| `test_warmup_scheduler.py` | Cálculo de steps, comportamento de LR no warmup/decaimento, restauração de estado |
+| `test_checkpoint.py` | Chaves obrigatórias, round-trip do warmup scheduler, `trained_epoch` e `global_step` |
+| `test_init_tool_state.py` | Carregamento de estado em `init_all`, tolerância a checkpoint inválido |
+| `test_gridsearch.py` | Geração de grade, validação de memória, filtragem de config, análise de resultados |
+| `test_gridsearch_config.py` | Estrutura e naming dos arquivos JSON de configuração do grid |
+
+---
+
+## Pipeline de Funcionamento
+
+```mermaid
+flowchart LR
+    %% Entidades externas (I/O)
+    IN[/"&nbsp;<br/>🗂️ Par de Casos<br/>Jurídicos<br/>&nbsp;"/]:::io
+    OUT[/"&nbsp;<br/>📋 Ranking de<br/>Relevância<br/>&nbsp;"/]:::io
+
+    %% Armazenamentos
+    DB1[("&nbsp;<br/>💾 BERT<br/>Pré-treinado<br/>&nbsp;")]:::store
+    DB2[("&nbsp;<br/>📦 Embeddings<br/>& Checkpoints<br/>&nbsp;")]:::store
+
+    %% Processos
+    P1["✂️ P1\nSegmentação em\nParágrafos"]:::preproc
+    P2["🤖 P2\nCodificação\nBERT"]:::encoding
+    P3["🔀 P3\nModelagem de\nInterações"]:::interaction
+    P4["🧠 P4\nAgregação\nGRU/LSTM + Atenção"]:::aggregation
+    P5["📊 P5\nScoring de\nEntailment"]:::scoring
+    P6["📈 P6\nAvaliação\nMAP · P@5 · F1"]:::evaluation
+
+    %% Fluxos de dados
+    IN           -->|"casos brutos"| P1
+    P1           -->|"sequências de parágrafos"| P2
+    DB1          -->|"pesos pré-treinados"| P2
+    P2           -->|"embeddings por parágrafo"| DB2
+    DB2          -->|"representações vetoriais"| P3
+    P3           -->|"matriz de interações"| P4
+    P4           -->|"vetor agregado"| P5
+    P5           -->|"scores de relevância"| P6
+    P6           --> OUT
+
+    classDef io          fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,font-weight:bold
+    classDef store       fill:#f1f5f9,stroke:#475569,color:#1e293b,font-weight:bold
+    classDef preproc     fill:#ffedd5,stroke:#ea580c,color:#7c2d12,font-weight:bold
+    classDef encoding    fill:#fef9c3,stroke:#ca8a04,color:#713f12,font-weight:bold
+    classDef interaction fill:#ede9fe,stroke:#7c3aed,color:#2e1065,font-weight:bold
+    classDef aggregation fill:#fce7f3,stroke:#db2777,color:#831843,font-weight:bold
+    classDef scoring     fill:#ccfbf1,stroke:#0d9488,color:#134e4a,font-weight:bold
+    classDef evaluation  fill:#dcfce7,stroke:#16a34a,color:#14532d,font-weight:bold
+```
+
+---
+
+## Executando Experimentos Rastreáveis
+
+Para pesquisa e reprodutibilidade, use `main.py` como ponto de entrada único. Ele orquestra tanto experimentos individuais quanto busca em grade de hiperparâmetros, delegando a execução ao motor `run_experiment.py`.
+
+### Arquitetura de execução
+
+```
+main.py  ──(mode=single)──→  run_experiment.py  →  tools/train_tool.py
+         ──(mode=grid)────→  gridsearch/core.py  →  run_experiment.py
+```
+
+### Experimento único
 
 ```bash
-uv run python poolout_to_train.py -in data/test_paragraphs_processed_data.json -out output/results/pool_out_max.json --result output/results/valid_poolout.json
+# Execução padrão (usa config/experiments/BertPLI.config)
+uv run python -m main --mode single
+
+# Com configuração específica
+uv run python -m main --mode single --config config/experiments/BertPLI2.config
+
+# Diretamente pelo motor (com seleção de GPU)
+uv run python run_experiment.py config/experiments/BertPLI.config        # GPU auto
+uv run python run_experiment.py config/experiments/BertPLI.config 0      # GPU 0
+uv run python run_experiment.py config/experiments/BertPLI.config 0 1    # GPU 0+1
 ```
 
-**Stage 4:Train Attention-based RNN (LSTM/GRU)**
+### Grid search de hiperparâmetros
 
 ```bash
-uv run python train.py -c config/nlp/AttenLSTM.config -g 0
-uv run python train.py -c config/nlp/AttenGRU.config -g 0
+# Busca minimal (teste rápido — 8 combinações, 2 workers)
+uv run python -m main --mode grid \
+    --grid-config gridsearch/config/grid_search_test.json \
+    --parallel 2
+
+# Busca completa (produção — 216 combinações)
+uv run python -m main --mode grid \
+    --grid-config gridsearch/config/grid_search.json \
+    --parallel 4
+
+# Retomar execução interrompida
+uv run python -m main --mode grid --resume
 ```
 
-**Stage 5a:Test with Attention-based RNN (LSTM)**
+> **Distribuição de GPUs:** em modo paralelo, o `main.py` distribui os workers em round-robin pelas GPUs disponíveis de forma automática. Para controle explícito, use `run_experiment.py` diretamente.
+
+### Artefatos gerados
+
+Cada experimento produz automaticamente em `output/experiments/metrics/`:
+
+| Artefato | Descrição |
+|---|---|
+| `<nome>_<optimizer>_<lr>_<bs>_<ep>_<timestamp>.json` | Métricas completas do experimento em JSON |
+| `experiment_summary_<YYYYMMDD>.csv` | Agregação diária de todos os experimentos |
+| `EmissionsCO2_<device>_<YYYYMMDD>.csv` | Emissões de CO₂ rastreadas pelo `codecarbon` |
+
+O JSON por experimento contém as seções:
+
+```json
+{
+  "experiment":      { "id", "config_name", "seed", "status", "timestamp_start", "timestamp_end" },
+  "environment":     { "device_type", "device_name", "precision" },
+  "hyperparameters": { "optimizer", "learning_rate", "batch_size", "epoch", "avg_gflops_per_batch" },
+  "resources":       { "train_time_sec", "energy_kwh", "emissions_kg_co2", "avg_ram_mb", "peak_ram_mb", "total_gflops" },
+  "evaluation":      { "precision", "recall", "f1_score", "source" },
+  "logs":            { "stdout_tail", "stderr_tail" }
+}
+```
+
+### Ativando avaliação automática ao final do treino
+
+No arquivo `.config` do experimento, inclua a seção:
+
+```ini
+[eval]
+run_test_at_end = true
+
+[data]
+test_labels_file = data/task1_test_labels_2024.json
+```
+
+### Rastreamento de Emissões de CO₂
+
+O projeto integra o [`codecarbon`](https://mlco2.github.io/codecarbon/) para medir consumo
+energético e emissões de CO₂ a cada experimento executado.
+
+**Ativar no arquivo `.config` do experimento:**
+
+```ini
+[monitoring]
+enable_monitoring = true
+```
+
+Quando ativado, ao término do experimento:
+
+| Saída | Descrição |
+|-------|-----------|
+| Campo `energy_kwh` no JSON | Energia consumida em kWh |
+| Campo `emissions_kg_co2` no JSON | Emissões estimadas em kg CO₂ |
+| `output/experiments/metrics/EmissionsCO2_<device>_<YYYYMMDD>.csv` | Histórico acumulado de emissões |
+
+**Custo estimado de energia**
+
+O custo monetário é calculado com a tarifa padrão de **$0,12 USD/kWh**, configurável via variável de ambiente:
 
 ```bash
-uv run python test.py -c config/nlp/AttenLSTM.config -g 0 --checkpoint output/checkpoints/attenlstm/59.pkl --result output/results/lstm_results.json
+ENERGY_COST_USD_PER_KWH=0.08 uv run python run_experiment.py config/experiments/BertPLI.config
 ```
 
-**Stage 5b:Test with Attention-based RNN (GRU)**
+> A variável `ENERGY_COST_USD_PER_KWH` aceita qualquer valor em ponto flutuante (USD por kWh).
+> O resultado aparece no campo `energy_cost_usd` do JSON de métricas do experimento.
 
-```bash
-uv run python test.py -c config/nlp/AttenGRU.config -g 0 --checkpoint output/checkpoints/attengru/59.pkl --result output/results/gru_results.json
-```
-
-**Stage 6:Parse and evaluate results**
-
-```bash
-uv run python parse_results.py
-uv run python parse_results.py evaluate data/task1_test_labels_2024.json output/results/lstm_parsed_result.json output/results/metrics.json
-```
-
-**Note on Directory Structure:**
-
-- Model checkpoints: `output/checkpoints/{model_name}/` (bert_finetuned, attenlstm, attengru)
-- Results: `output/results/` (pool_out_max.json, *results.json* , *_parsed_result*.json)
+---
 
 This repository contains the code for BERT-PLI in our IJCAI-PRICAI 2020 paper: *BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval*.
 
-## File Outline
+---
 
-### Model
+## Busca em Grade de Hiperparâmetros (Grid Search)
 
-- ``./model/nlp/BertPoint.py``: model for Stage2: fine-tune a paragraph pair classification Task.
+O módulo `gridsearch/` implementa busca exaustiva de hiperparâmetros com execução paralela, rastreamento de recursos e análise automática dos resultados.
 
-- ``./model/nlp/BertPoolOutMax.py`` : model paragraph-level interactions between documents.
+### Modos de execução
 
-- ``./model/nlp/AttenRNN.py`` : aggregate paragraph-level representations.
+**Via `main.py` (recomendado):**
 
-### Config
+```bash
+# Grade de teste — 8 combinações, validação rápida do pipeline (~2-3h com 2 workers)
+uv run python -m main --mode grid \
+    --grid-config gridsearch/config/grid_search_test.json \
+    --parallel 2
 
-- ``./config/nlp/BertPoint.config`` : configuration of ``./model/nlp/BertPoint.py`` (Stage 2, fine-tune).
+# Grade completa — 432 combinações (~72-108h com 2 workers)
+uv run python -m main --mode grid \
+    --grid-config gridsearch/config/grid_search.json \
+    --parallel 4
 
-- ``./config/nlp/BertPoolOutMax.config`` : configuration of ``./model/nlp/BertPoolOutMax.py`` .
+# Retomar execução interrompida (checkpoint automático por experimento)
+uv run python -m main --mode grid --resume
+```
 
-- ``./config/nlp/AttenGRU.config`` / ``./config/nlp/AttenLSTM.config`` : configuration of ``./model/nlp/AttenRNN.py`` (GRU / LSTM, repectively)
+**Via módulo `gridsearch` (uso programático):**
 
-### Formatter
+```python
+from gridsearch import run_grid_search, analyze_results
+import json
 
-- ``./formatter/nlp/BertPairTextFormatter.py``: prepare input for ``./model/nlp/BertPoint.py`` (Stage 2, fine-tune)
+with open("gridsearch/config/grid_search_test.json") as f:
+    grid_config = json.load(f)
 
-- ``./formatter/nlp/BertDocParaFormatter.py`` : prepare input for ``./model/nlp/BertPoolOutMax.py``
+results = run_grid_search(
+    base_config_path="config/experiments/BertPLI.config",
+    grid_config=grid_config["hyperparameters"],
+    parallel=2,
+    gpu_ids=[0, 1],   # distribuição round-robin por worker
+)
 
-- ``./formatter/nlp/AttenRNNFormatter.py`` : prepare input for ``./model/nlp/AttenRNN.py``
+analysis = analyze_results(results)
+```
 
-### Examples
+### Espaço de busca
 
-Examples of input data. Note that we cannot make the raw data public according to the memorandum we signed for the dataset. The examples here have been processed manually and differ from the true data.
+| Hiperparâmetro | Valores (grade completa) |
+|---|---|
+| `learning_rate` | `1e-5`, `2e-5`, `3e-5`, `5e-5` |
+| `batch_size` | `8`, `16`, `32` |
+| `optimizer` | `adam`, `adamw`, `sgd`, `bert_adam` |
+| `dropout` | `0.1`, `0.2`, `0.3` |
+| `seed` | `42`, `123`, `456` |
+| **Total** | **432 combinações** |
 
-- ``./examples/task2/data_sample.json``: example input for Stage 2 (fine-tune).
+### Artefatos gerados
 
-    The format:
+```
+output/experiments/grid_search/
+├── grid_search_results_<data>.json    # Resultados de todos os experimentos
+├── grid_search_summary_<data>.txt     # Ranking legível das melhores configurações
+└── grid_search_state_<data>.json      # Estado para retomada (--resume)
+```
+
+O módulo analisa e ranqueia as configurações por 5 critérios:
+tempo de treinamento, consumo de energia (kWh), emissões de CO₂ (kg),
+uso de RAM (MB) e F1-score de validação.
+
+> Para documentação completa do módulo, consulte [`gridsearch/README.md`](gridsearch/README.md).
+
+---
+
+## Estrutura do Projeto
+
+```
+📁 ExperimentoBERT-PLI/
+│
+├── 📄 main.py                 Orquestrador do experimento
+├── 📄 run_experiment.py       Motor de execução
+├── 📄 pyproject.toml          Dependências e entrypoints
+├── 📄 compose.yaml            Ambiente containerizado
+├── 📄 Dockerfile              Imagem base do projeto
+├── 📁 config/                 Configurações em cascata
+├── 📁 model/                  Modelos LM
+├── 📁 formatter/              Preparação de inputs
+├── 📁 dataset/                DataLoaders
+├── 📁 tools/                  Treino, Avaliação e Inferência
+├── 📁 scripts/                Entrypoints CLI
+├── 📁 gridsearch/             Módulo de busca em grid
+├── 📁 utils/                  Utilitários gerais
+├── 📁 tests/                  Suite com 101 testes
+├── 📁 data/                   Dados sintéticos
+├── 📁 examples/               Exemplos de dados
+├── 📁 docs/                   Documentação técnica
+└── 📁 devconteiner/           Dev Container (VS Code)
+```
+
+### Exemplos de formato de dados
+
+> **Para fins acadêmicos:** Este repositório inclui dados sintéticos de casos jurídicos no diretório `data/`, simulando a estrutura do dataset COLIEE:
+>
+> - 34 pares de parágrafos para treino (exemplos positivos e negativos balanceados)
+> - 6 pares de parágrafos para validação
+> - 10 documentos com múltiplos parágrafos para teste
+> - Conteúdo jurídico realista cobrindo diversos temas (contratos, direito constitucional, processo civil, etc.)
+>
+> **Para pesquisa/produção:** acesse [COLIEE 2019](https://sites.ualberta.ca/~rabelo/COLIEE2019/) para solicitar o dataset original da competição.
+
+- [examples/task2/data_sample.json](examples/task2/data_sample.json): input para Estágio 2 (fine-tuning par de parágrafos)
 
 ```json
-{
-"guid": "queryID_paraID",
-"text_a": text of the decision paragraph,
-"text_b": text of the candidate paragraph,
-"label": 0 or 1 
-}
+{ "guid": "queryID_paraID", "text_a": "<parágrafo decisão>", "text_b": "<parágrafo candidato>", "label": 0 }
 ```
 
-- ``./examples/task1/case_para_sample.json``: example input used in ``./config/nlp/BertPoolOutMax.config``.
-
-    The format:
+- [examples/task1/case_para_sample.json](examples/task1/case_para_sample.json): input para Estágio 3 (BertPoolOutMax)
 
 ```json
-{
-"guid": "queryID_docID",
-"q_paras": [...], // a list of paragraphs in query case,
-"c_paras": [...], // a list of parameters in candidate case,
-"label": 0, // 0 or 1, denote the relevance
-}
+{ "guid": "queryID_docID", "q_paras": ["..."], "c_paras": ["..."], "label": 0 }
 ```
 
-- ``./examples/task1/embedding_sample.json``: example input used in ``./config/nlp/AttenGRU.config`` and ``./config/nlp/AttenLSTM.config``
-
-    The format:
+- [examples/task1/embedding_sample.json](examples/task1/embedding_sample.json): input para Estágio 4 (AttenRNN)
 
 ```json
-{
-"guid": "queryID_docID",
-"res": [[],...,[]], // N * 768, result of BertPoolOutMax,
-"label": 0, // 0 or 1, denote the relevance
-}
+{ "guid": "queryID_docID", "res": [[...], ...], "label": 0 }
 ```
 
-### Scripts
+### Dependências
 
-- ``poolout.py``/``train.py``/``test.py``, main entrance for *poolling out*, *training*, and *testing*.
+- Gerenciadas via `pyproject.toml` + `uv`. Consulte a seção [Instalação](#instalação) para instruções completas.
+- Para inspecionar as versões exatas resolvidas: `uv pip list`
 
-### Requirements
+## Reprodutibilidade
 
-- See ``requirements.txt``
+O projeto garante resultados reproduzíveis por meio da função `set_seed` em [utils/seed.py](utils/seed.py), que cobre todas as fontes de aleatoriedade:
 
-## Experimental Settings
+| Camada | Mecanismo |
+|--------|-----------|
+| Python | `random.seed(seed)` |
+| Python hash | `PYTHONHASHSEED=<seed>` |
+| NumPy | `np.random.seed(seed)` |
+| PyTorch CPU | `torch.manual_seed(seed)` |
+| PyTorch CUDA | `torch.cuda.manual_seed_all(seed)` |
+| cuDNN | `deterministic=True`, `benchmark=False` |
+| Apple Silicon (MPS) | `torch.mps.manual_seed(seed)` |
+| Transformers | `transformers.set_seed(seed)` |
 
-### Data
+### Configurando o seed pelo arquivo `.config`
 
-**For Academic Purposes**: This repository includes synthetic legal case data in the `data/` directory that simulates the structure of COLIEE dataset:
-
-- 34 paragraph pairs for training (balanced positive/negative examples)
-- 6 paragraph pairs for validation
-- 10 multi-paragraph documents for testing
-- Realistic legal content covering various topics (contracts, constitutional law, civil procedure, etc.)
-
-**For Research/Production**: Please visit [COLIEE 2019](https://sites.ualberta.ca/~rabelo/COLIEE2019/) to apply for the actual competition dataset.
-
-Please email <shaoyq18@mails.tsinghua.edu.cn> for the checkpoint of fine-tuned BERT.
-
-### Evaluation Metric
-
-We follow the evaluation metrics in [COLIEEE 2019](https://sites.ualberta.ca/~rabelo/COLIEE2019/). Note that results should be evaluated on the whole document pool (e.g., 200 candidate documents for each query case.)
-
-$$ Precision = \dfrac{\textrm{correctly retrieved cases (paragraphs) for all queries}}{\textrm{retrieved cases (paragraphs) for all queries}} $$
-
-$$ Recall = \dfrac{\textrm{correctly retrieved cases (paragraphs) for all queries}}{\textrm{relevant cases (paragraphs) for all queries}} $$
-
-$$ F-measure = \dfrac{2 \times Precision \times Recall}{Precision + Recall} $$
-
-### Parameter Settings
-
-Please refer to the configuration files for parameters for each step.
-
-For example, in Stage 2, $learning rate = 10^{-5}$, $batch size = 16$, $training epoch = 3$. In Stage 3, $N=54$, $M=40$, $learning rate=10^{-4}$, $weight_decay=10^{-6}$.
-
-## Contact
-
-For more details, please refer to our paper [BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval](https://www.ijcai.org/Proceedings/2020/0484.pdf). If you have any questions, please email <shaoyq18@mails.tsinghua.edu.cn>.
-
-## Citation
-
-```tex
-@inproceedings{shao2020bert,
-  title={BERT-PLI: Modeling Paragraph-Level Interactions for Legal Case Retrieval},
-  author={Shao, Yunqiu and Mao, Jiaxin and Liu, Yiqun and Ma, Weizhi and Satoh, Ken and Zhang, Min and Ma, Shaoping},
-  booktitle={Proceedings of the Twenty-Ninth International Joint Conference on Artificial Intelligence, IJCAI-20},
-  pages={3501--3507},
-  year={2020}
-}
+```ini
+[training]
+seed = 42
 ```
+
+O seed padrão é `42`. Para máxima reprodutibilidade, use `ensure_reproducibility()`, que adicionalmente define `CUBLAS_WORKSPACE_CONFIG=:4096:8`:
+
+```python
+from utils.seed import ensure_reproducibility
+ensure_reproducibility(seed=42)
+```
+
+### Trade-off: determinismo vs. performance
+
+| Modo | `cudnn.deterministic` | `cudnn.benchmark` | Performance |
+|------|----------------------|-------------------|-------------|
+| `set_seed(seed, deterministic=True)` *(padrão)* | `True` | `False` | Reduzida |
+| `set_seed(seed, deterministic=False)` | `False` | `True` | Máxima |
+
+> **Nota:** mesmo com `deterministic=True`, operações atômicas em GPU (ex.: `scatter_add`) podem introduzir variação residual em versões mais antigas do CUDA. Para eliminação total, use `ensure_reproducibility()`.
+
+---
+
