@@ -10,10 +10,21 @@ logger = logging.getLogger(__name__)
 try:
     import torch
     _TORCH_AVAILABLE = True
-except (ImportError, OSError) as e:
+
+    if _TORCH_AVAILABLE:
+        print("PyTorch foi habilitado!")
+        try:
+            import torch_xla.core.xla_model as xm
+            _XLA_AVAILABLE = True
+            print("Torch_XLA habilitado!")
+        except (ImportError, OSError):
+            xm = None
+            _XLA_AVAILABLE = False
+            print("Torch_XLA não disponível!")
+except (ImportError, OSError):
     torch = None
     _TORCH_AVAILABLE = False
-    logger.warning(f"PyTorch não disponível neste ambiente: {e}")
+    logger.warning("PyTorch não disponível neste ambiente")
 
 
 def get_device(prefer_cpu: bool = False):
@@ -125,3 +136,26 @@ def set_device_optimization(device):
         logger.info("MPS device set (experimental support)")
     else:
         logger.info("CPU mode - no specific optimizations applied")
+
+
+def get_torch_device() -> dict:
+    """Retorna o dispositivo PyTorch disponível (CPU, GPU ou TPU)."""
+    if _XLA_AVAILABLE and len(xm.get_xla_supported_devices()) > 0:
+        return {
+            'type': 'TPU',
+            'name': xm.xla_device_kind(),
+            'device': xm.xla_device()
+        }
+    if _TORCH_AVAILABLE and torch.cuda.is_available():
+        return {
+            'type': 'GPU',
+            'name': torch.cuda.get_device_name(0),
+            'device': torch.device('cuda')
+        }
+    if _TORCH_AVAILABLE:
+        return {
+            'type': 'CPU',
+            'name': platform.processor(),
+            'device': torch.device('cpu')
+        }
+    return {'type': 'unavailable', 'name': None, 'device': None}
