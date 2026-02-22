@@ -1,4 +1,14 @@
 # -*- coding: utf-8 -*-
+"""model/nlp/BertPoolOutMax.py — Extrator de embeddings BERT com max-pooling
+==========================================================================
+Estágio 3 do pipeline BERT-PLI: percorre todos os pares padrão-parágrafo
+(query × candidato) sem gradiente, extraí o ``pooler_output`` do BERT
+para cada par e aplica ``MaxPool2d`` ao longo da dimensão de parágrafos
+candidatos, produzindo um vetor de interação por parágrafo da query.
+
+O resultado é uma lista de interações que será consumida pelo
+:class:`AttentionRNN` no estágio seguinte.
+"""
 __author__ = 'yshao'
 
 
@@ -9,7 +19,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BertPoolOutMax(nn.Module):
+    """Módulo de pooling de interações BERT em nível de parágrafo.
+
+    Para cada amostra do batch, itera sobre os parágrafos da query em
+    janelas de tamanho ``step``, processa cada janela com BERT sem gradiente
+    (``torch.no_grad()``) e reduz a dimensão de parágrafos candidatos
+    via ``MaxPool2d(kernel=(1, max_para_c))``.
+
+    Parâmetros lidos do ``.config``:
+        ``model.max_para_c``, ``model.max_para_q``, ``model.step``,
+        ``data.max_seq_length``, ``model.bert_path``.
+    """
+
     def __init__(self, config, gpu_list, *args, **params):
+        """Inicializa BERT e a camada MaxPool2d.
+
+        Args:
+            config:   ConfigParser com parâmetros do modelo e dos dados.
+            gpu_list: Lista de IDs de GPU (reservado para ``init_multi_gpu``).
+        """
         super(BertPoolOutMax, self).__init__()
         self.max_para_c = config.getint('model', 'max_para_c')
         self.max_para_q = config.getint('model', 'max_para_q')
@@ -19,10 +47,30 @@ class BertPoolOutMax(nn.Module):
         # self.maxpool = nn.MaxPool1d(kernel_size=self.max_para_c)
         self.maxpool = nn.MaxPool2d(kernel_size=(1, self.max_para_c))
 
-    def init_multi_gpu(self, device, config, *args, **params):
+    def init_multi_gpu(self, device, config, *args, **params) -> None:
+        """Distribui o encoder BERT em múltiplas GPUs via ``nn.DataParallel``.
+
+        Args:
+            device: Lista de IDs de GPU passada ao ``DataParallel``.
+            config: ConfigParser (não utilizado; mantido para interface uniforme).
+        """
         self.bert = nn.DataParallel(self.bert, device_ids=device)
 
-    def forward(self, data, config, gpu_list, acc_result, mode):
+    def forward(self, data: dict, config, gpu_list, acc_result, mode: str) -> dict:
+        """Extrai vetores de interação para cada par (query, documento).
+
+        Args:
+            data:       Dict com ``'input_ids'`` ``[B, max_para_q, max_para_c, L]``,
+                        ``'attention_mask'``, ``'token_type_ids'`` e ``'guid'``.
+            config:     ConfigParser (não utilizado no forward; mantido para interface uniforme).
+            gpu_list:   Lista de IDs de GPU (não utilizado diretamente).
+            acc_result: Acumulador de acurácia (não utilizado neste estágio).
+            mode:       Modo de execução (``'train'``, ``'valid'`` ou ``'test'``).
+
+        Returns:
+            ``{'output': [(guid, q_lst), ...]}`` onde ``q_lst`` é uma lista de
+            ``max_para_q`` vetores de interação (um por parágrafo da query).
+        """
         input_ids, attention_mask, token_type_ids = data['input_ids'], data['attention_mask'], data['token_type_ids']
         with torch.no_grad():
             output = []

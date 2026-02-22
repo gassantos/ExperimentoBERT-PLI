@@ -1,4 +1,18 @@
 # -*- coding: utf-8 -*-
+"""model/nlp/AttenRNN.py — Agregação de interações padrão com RNN + Atenção
+==========================================================================
+Estágio 4 do pipeline BERT-PLI: recebe a matriz de interações padrão-parágrafo
+gerada pelo :class:`BertPoolOutMax` e produz um score binário de entailment.
+
+Arquitetura::
+
+    entrada [B, M, H] → LSTM/GRU → MaxPool temporal → Atenção → FC → logits [B, 2]
+
+Onde:
+  - B = batch size
+  - M = número máximo de parágrafos da query (``max_para_q``)
+  - H = ``bert_hidden_size`` (padrão 768)
+"""
 __author__ = 'yshao'
 
 import torch
@@ -9,11 +23,30 @@ from tools.accuracy_init import init_accuracy_function
 
 
 class Attention(nn.Module):
+    """Módulo de atenção global sobre a saída da RNN.
+
+    Computa um score de atenção escalar por passo temporal via produto interno
+    entre cada hidden state e o vetor de feature global (max-pool), produzindo
+    um único vetor de contexto pela soma ponderada.
+    """
+
     def __init__(self, config):
+        """Args:
+            config: ConfigParser (reservado para extensões futuras; não utilizado atualmente).
+        """
         super(Attention, self).__init__()
         pass
 
-    def forward(self, feature, hidden):
+    def forward(self, feature: torch.Tensor, hidden: torch.Tensor) -> torch.Tensor:
+        """Aplica atenção dot-product sobre a sequência RNN.
+
+        Args:
+            feature: Tensor ``[B, H, 1]`` — vetor de feature global (max-pool).
+            hidden:  Tensor ``[B, M, H]`` — saída da RNN por passo temporal.
+
+        Returns:
+            Tensor ``[B, H]`` — vetor de contexto ponderado pela atenção.
+        """
         # hidden: B * M * H, feature: B * H * 1
         ratio = torch.bmm(hidden, feature)
         # ratio: B * M * 1
@@ -26,7 +59,25 @@ class Attention(nn.Module):
 
 
 class AttentionRNN(nn.Module):
+    """Classificador de entailment baseado em RNN bidirecional com atenção.
+
+    Recebe uma matriz de interações ``[B, M, H]`` gerada no estágio poolout e
+    aplica uma LSTM ou GRU bidirecional seguida de max-pooling temporal,
+    atenção e camada linear de classificação binária.
+
+    Parâmetros lidos do ``.config`` (seção ``[model]``):
+        ``rnn`` (``'lstm'`` ou ``'gru'``), ``hidden_dim``, ``num_layers``,
+        ``bidirectional``, ``dropout_rnn``, ``dropout_fc``, ``max_para_q``,
+        ``output_dim``, ``bert_hidden_size`` (padrão 768).
+    """
+
     def __init__(self, config, gpu_list, *args, **params):
+        """Inicializa RNN, atenção, camadas lineares e funções de perda/acurácia.
+
+        Args:
+            config:   ConfigParser com parâmetros do modelo e treino.
+            gpu_list: Lista de IDs de GPU disponíveis (usada em ``init_weight``).
+        """
         super(AttentionRNN, self).__init__()
 
         # Dimensão de entrada = hidden_size do backbone BERT que gerou os embeddings.
@@ -62,7 +113,16 @@ class AttentionRNN(nn.Module):
         self.criterion = nn.CrossEntropyLoss(weight=self.weight)
         self.accuracy_function = init_accuracy_function(config, *args, **params)
 
-    def init_weight(self, config, gpu_list):
+    def init_weight(self, config, gpu_list) -> torch.Tensor | None:
+        """Cria tensor de pesos de classe para a cross-entropy, se configurado.
+
+        Args:
+            config:   ConfigParser com a chave opcional ``model.label_weight``.
+            gpu_list: Lista de IDs de GPU; o tensor é movido para CUDA se disponível.
+
+        Returns:
+            Tensor de pesos ``[output_dim]`` ou ``None`` se ``label_weight`` não estiver definido.
+        """
         try:
             label_weight = config.getfloat('model', 'label_weight')
         except Exception:
@@ -73,7 +133,16 @@ class AttentionRNN(nn.Module):
             weight_lst = weight_lst.cuda()
         return weight_lst
 
-    def init_hidden(self, config, batch_size, gpu_list):
+    def init_hidden(self, config, batch_size: int, gpu_list) -> None:
+        """Inicializa o estado oculto da RNN com zeros no device correto.
+
+        Para LSTM, cria uma tupla ``(h_0, c_0)``; para GRU, cria apenas ``h_0``.
+
+        Args:
+            config:     ConfigParser para determinar o tipo de RNN (``model.rnn``).
+            batch_size: Tamanho do batch atual.
+            gpu_list:   Lista de IDs de GPU (define CPU vs CUDA).
+        """
         device = torch.device("cuda" if torch.cuda.is_available() and len(gpu_list) > 0 else "cpu")
         shape = (self.direction * self.num_layers, batch_size, self.hidden_dim)
         if config.get('model', 'rnn') == 'lstm':
@@ -84,7 +153,13 @@ class AttentionRNN(nn.Module):
         else:
             self.hidden = torch.zeros(shape, device=device)
 
-    def init_multi_gpu(self, device, config, *args, **params):
+    def init_multi_gpu(self, device, config, *args, **params) -> None:
+        """Distribui os sub-módulos em múltiplas GPUs via ``nn.DataParallel``.
+
+        Args:
+            device: Lista de IDs de GPU passada ao ``DataParallel``.
+            config: ConfigParser (não utilizado; mantido para interface uniforme).
+        """
         self.rnn = nn.DataParallel(self.rnn, device_ids=device)
         self.max_pool = nn.DataParallel(self.max_pool, device_ids=device)
         self.fc_a = nn.DataParallel(self.fc_a, device_ids=device)
@@ -92,7 +167,24 @@ class AttentionRNN(nn.Module):
         self.fc_f = nn.DataParallel(self.fc_f, device_ids=device)
 #         self.soft_max = nn.DataParallel(self.soft_max, device_ids=device)
 
-    def forward(self, data, config, gpu_list, acc_result, mode):
+    def forward(self, data: dict, config, gpu_list, acc_result, mode: str) -> dict:
+        """Passagem forward completa: RNN → MaxPool → Atenção → FC → perda/output.
+
+        Args:
+            data:       Dict com ``'input'`` ``[B, M, H]`` e, em modo ``train``/``valid``,
+                        ``'label'`` ``[B]`` e ``'guid'`` (lista de IDs de exemplo).
+            config:     ConfigParser com parâmetros de execução.
+            gpu_list:   Lista de IDs de GPU (repassada a ``init_hidden``).
+            acc_result: Acumulador de acurácia.
+            mode:       ``'train'``, ``'valid'`` ou ``'test'``.
+
+        Returns:
+            Dict com chaves dependentes do modo:
+
+            - ``train``: ``{'loss', 'acc_result'}``
+            - ``valid``: ``{'loss', 'acc_result', 'output'}``
+            - ``test``/padrão: ``{'output'}``
+        """
         x = data['input'] # B * M * I
         batch_size = x.size()[0]
         self.init_hidden(config, batch_size, gpu_list) # 2 * B * H

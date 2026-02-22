@@ -1,4 +1,14 @@
 # -*- coding: utf-8 -*-
+"""model/nlp/BertPoint.py — Fine-tuning BERT par a par de parágrafos
+====================================================================
+Estágio 2 do pipeline BERT-PLI: recebe um par de parágrafos (query, candidato)
+como sequência única e fine-tunes um BERT pré-treinado para classificação
+binaria de entailment.
+
+Também atua como extrator de embeddings quando ``output.pool_out = true``:
+neste caso, o ``forward`` retorna o mean-pool de ``last_hidden_state``
+sem passar pela camada de classificação.
+"""
 __author__ = 'yshao'
 
 import torch
@@ -9,7 +19,26 @@ from tools.accuracy_init import init_accuracy_function
 
 
 class BertPoint(nn.Module):
+    """Classificador de entailment baseado em BERT com fine-tuning.
+
+    Codifica o par de parágrafos (``[CLS] q [SEP] c [SEP]``) com BERT e passa
+    o mean-pool da última camada por uma camada linear de classificação.
+
+    Quando ``output.pool_out = true``, o ``forward`` retorna apenas o vetor
+    de embedding antes da camada FC para ser consumido pelo estágio seguinte.
+
+    Parâmetros lidos do ``.config``:
+        ``model.output_dim``, ``model.output_mode`` (``'classification'`` ou ``'regression'``),
+        ``model.bert_path``.
+    """
+
     def __init__(self, config, gpu_list, *args, **params):
+        """Inicializa BERT, camada FC e função de perda/acurácia.
+
+        Args:
+            config:   ConfigParser com parâmetros do modelo.
+            gpu_list: Lista de IDs de GPU (reservado para ``init_multi_gpu``).
+        """
         super(BertPoint, self).__init__()
 
         self.output_dim = config.getint("model", "output_dim")
@@ -26,7 +55,13 @@ class BertPoint(nn.Module):
             self.criterion = nn.MSELoss()
         self.accuracy_function = init_accuracy_function(config, *args, **params)
 
-    def init_multi_gpu(self, device, config, *args, **params):
+    def init_multi_gpu(self, device, config, *args, **params) -> None:
+        """Distribui o encoder BERT em múltiplas GPUs via ``nn.DataParallel``.
+
+        Args:
+            device: Lista de IDs de GPU passada ao ``DataParallel``.
+            config: ConfigParser (não utilizado; mantido para interface uniforme).
+        """
         self.bert = nn.DataParallel(self.bert, device_ids=device)
 
     @staticmethod
@@ -51,7 +86,25 @@ class BertPoint(nn.Module):
         sum_mask = mask.sum(dim=1).clamp(min=1e-9)
         return sum_embeddings / sum_mask
 
-    def forward(self, data, config, gpu_list, acc_result, mode):
+    def forward(self, data: dict, config, gpu_list, acc_result, mode: str) -> dict:
+        """Passagem forward: BERT → mean-pool → [FC → perda | pool-out].
+
+        Args:
+            data:       Dict com ``'input_ids'``, ``'attention_mask'``,
+                        ``'token_type_ids'``, ``'guid'`` e, em treino/val, ``'label'``.
+            config:     ConfigParser com ``output.pool_out``.
+            gpu_list:   Lista de IDs de GPU (não utilizado diretamente).
+            acc_result: Acumulador de acurácia.
+            mode:       ``'train'``, ``'valid'`` ou ``'test'``.
+
+        Returns:
+            Dict com chaves dependentes do modo:
+
+            - ``train``: ``{'loss', 'acc_result'}``
+            - ``valid``: ``{'loss', 'acc_result', 'output'}``
+            - ``test`` + ``pool_out=True``: ``{'output'}`` com embeddings ``[B, H]``
+            - ``test`` padrão: ``{'output'}`` com logits
+        """
         input_ids, attention_mask, token_type_ids = data['input_ids'], data['attention_mask'], data['token_type_ids']
         outputs = self.bert(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask)
         # Mean pooling: agrega last_hidden_state ponderado pela attention_mask — [B, H]

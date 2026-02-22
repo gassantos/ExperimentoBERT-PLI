@@ -1,10 +1,30 @@
+"""model/loss.py — Funções e módulos de perda para classificação
+===================================================================
+Disponibiliza três estratégias de perda usadas no pipeline BERT-PLI:
+
+- :class:`MultiLabelSoftmaxLoss` — cross-entropy ponderada por tarefa para classificação multi-label.
+- :func:`multi_label_cross_entropy_loss` — perda binária element-wise (BCE sem sigmoid).
+- :func:`cross_entropy_loss` — cross-entropy padrão do PyTorch.
+- :class:`FocalLoss` — perda focal (Lin et al., 2017) para dados desbalanceados.
+"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class MultiLabelSoftmaxLoss(nn.Module):
+    """Cross-entropy ponderada por tarefa para classificação multi-label.
+
+    Cada tarefa pode ter um peso de classe configurado via ``loss_weight_<i>``
+    na seção ``[train]`` do arquivo ``.config``. O tensor de peso é criado
+    no forward no device do input, garantindo compatibilidade com CPU, CUDA e MPS.
+    """
+
     def __init__(self, config):
+        """Args:
+            config: ConfigParser com ``model.output_dim`` e, opcionalmente,
+                ``train.loss_weight_<i>`` para cada tarefa.
+        """
         super(MultiLabelSoftmaxLoss, self).__init__()
         self.task_num = config.getint("model", "output_dim")
         # Armazena os pesos como floats Python — o tensor é criado no forward()
@@ -18,7 +38,16 @@ class MultiLabelSoftmaxLoss(nn.Module):
             except Exception:
                 self._loss_weights.append(None)
 
-    def forward(self, outputs, labels):
+    def forward(self, outputs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Calcula a perda somada de todas as tarefas.
+
+        Args:
+            outputs: Tensor ``[B, num_tasks, num_classes]`` com logits.
+            labels:  Tensor ``[B, num_tasks]`` com rótulos inteiros.
+
+        Returns:
+            Escalar de perda somada sobre todas as tarefas.
+        """
         loss = 0
         for a in range(0, len(outputs[0])):
             o = outputs[:, a, :].view(outputs.size()[0], -1)
@@ -33,7 +62,19 @@ class MultiLabelSoftmaxLoss(nn.Module):
         return loss
 
 
-def multi_label_cross_entropy_loss(outputs, labels):
+def multi_label_cross_entropy_loss(outputs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Perda binária element-wise para classificação multi-label.
+
+    Computa ``-y*log(p) - (1-y)*log(1-p)`` por elemento e retorna a média
+    sobre o batch. Assume que ``outputs`` já passou por sigmoid.
+
+    Args:
+        outputs: Tensor ``[B, C]`` com probabilidades em ``(0, 1)``.
+        labels:  Tensor ``[B, C]`` com rótulos binários.
+
+    Returns:
+        Escalar de perda média.
+    """
     labels = labels.float()
     temp = outputs
     res = - labels * torch.log(temp) - (1 - labels) * torch.log(1 - temp)
@@ -42,19 +83,50 @@ def multi_label_cross_entropy_loss(outputs, labels):
     return res
 
 
-def cross_entropy_loss(outputs, labels):
+def cross_entropy_loss(outputs: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Wrapper conveniente em torno de ``nn.CrossEntropyLoss``.
+
+    Args:
+        outputs: Tensor ``[B, C]`` com logits.
+        labels:  Tensor ``[B]`` com rótulos inteiros.
+
+    Returns:
+        Escalar de perda cross-entropy.
+    """
     criterion = nn.CrossEntropyLoss()
     return criterion(outputs, labels)
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, gamma=0, alpha=None, size_average=True):
+    """Perda focal para lidar com desbalanceamento de classes.
+
+    Reduz a contribuição de exemplos fáceis (alta confiança) e foca o
+    treino em exemplos difíceis via fator ``(1 - p_t)^gamma``.
+
+    Referência: Lin et al. (2017) — *Focal Loss for Dense Object Detection*.
+    """
+
+    def __init__(self, gamma: float = 0, alpha: torch.Tensor | None = None, size_average: bool = True):
+        """Args:
+            gamma: Fator de foco. ``0`` equivale a cross-entropy padrão.
+            alpha: Tensor de pesos por classe. ``None`` = sem pesos.
+            size_average: Se ``True``, retorna média; caso contrário, soma.
+        """
         super(FocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
         self.size_average = size_average
 
-    def forward(self, input, target):
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Calcula a perda focal.
+
+        Args:
+            input:  Tensor ``[B, C]`` (ou ``[B, C, H, W]``) com logits.
+            target: Tensor ``[B]`` (ou ``[B, H, W]``) com rótulos inteiros.
+
+        Returns:
+            Escalar de perda focal (média ou soma conforme ``size_average``).
+        """
         if input.dim() > 2:
             input = input.view(input.size(0), input.size(1), -1)  # N,C,H,W => N,C,H*W
             input = input.transpose(1, 2)  # N,C,H*W => N,H*W,C
