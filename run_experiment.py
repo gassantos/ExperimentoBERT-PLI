@@ -29,7 +29,7 @@ import json
 import csv
 import logging
 from datetime import datetime, timezone
-from utils.util import get_torch_device
+from utils.device import get_torch_device
 from utils.paths import PathManager
 import torch
 import psutil
@@ -76,31 +76,6 @@ def load_config(path: str) -> configparser.ConfigParser:
     cfg.read(path)
     return cfg
 
-
-def get_accelerator_type() -> str:
-    """Detecta o tipo de acelerador disponível no ambiente atual.
-
-    Prioridade de detecção: GPU (CUDA) → TPU (torch_xla) → CPU.
-
-    Returns:
-        ``'GPU'``, ``'TPU'`` ou ``'CPU'``.
-    """
-    # Check for GPU
-    try:
-        if torch.cuda.is_available():
-            return 'GPU'
-    except Exception:
-        pass
-
-    # Check for TPU (torch_xla - PyTorch/XLA para Google Cloud TPU)
-    try:
-        import torch_xla.core.xla_model as xm  # type: ignore
-        xm.xla_device()
-        return 'TPU'
-    except Exception:
-        pass
-
-    return 'CPU'
 
 def estimate_bert_flops(
     seq_len: int,
@@ -168,7 +143,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None) -> N
     mon =   cfg["monitoring"]
 
     experiment_id = str(uuid.uuid4())
-    device_type = get_accelerator_type()
+    device_type = _torch_device_info['type']
 
     # Sincroniza o CUDA para garantir que as medições de tempo sejam precisas
     torch.cuda.synchronize() if torch.cuda.is_available() else None
@@ -479,7 +454,7 @@ def execute_experiment(config_path: str, gpu_list: list[int] | None = None) -> N
     # =========================
     # CSV AGGREGATION
     # =========================
-    csv_filename = f"experiment_summary_{datetime.now().strftime('%Y%m%d')}.csv"
+    csv_filename = f"experiment_summary_{device_type}{datetime.now().strftime('%Y%m%d')}.csv"
     CSV_PATH = _METRICS_DIR / csv_filename
     write_header = not CSV_PATH.exists()
 

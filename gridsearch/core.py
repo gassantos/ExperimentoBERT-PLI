@@ -29,16 +29,9 @@ from datetime import datetime
 from typing import Dict, List, Any
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
-# Configuração crítica: usar 'spawn' para compatibilidade com CUDA
-# DEVE ser definido antes de qualquer uso de multiprocessing
-# try:
-#     multiprocessing.set_start_method('spawn', force=True)
-# except RuntimeError:
-#     pass
-
+from utils.device import get_torch_device
 from utils.paths import PathManager
-from utils.log_setup import setup_main_logging, setup_worker_logging, _LOG_QUEUE
+from utils.log_setup import setup_worker_logging, _LOG_QUEUE
 from .utils import (
     check_memory_availability,
     filter_grid_config,
@@ -47,6 +40,7 @@ from .utils import (
 
 _TDATE = datetime.now().strftime("%Y-%m-%d")
 _LOGFILE = PathManager.LOGS_DIR / f"grid_search_{_TDATE}.log"
+device_type = get_torch_device()['type']
 
 # Logging configurado via setup_main_logging() em run_grid_search().
 # Não chamamos basicConfig aqui para evitar dupla inicialização nos workers.
@@ -56,9 +50,9 @@ logger = logging.getLogger(__name__)
 # Diretórios
 GRID_OUTPUT_DIR = PathManager.EXPERIMENTS_DIR / "grid_search"
 GRID_CONFIGS_DIR = GRID_OUTPUT_DIR / "configs"
-GRID_STATE_FILE = GRID_OUTPUT_DIR / f"grid_search_state_{_TDATE}.json"
-GRID_RESULTS_FILE = GRID_OUTPUT_DIR / f"grid_search_results_{_TDATE}.json"
-GRID_SUMMARY_FILE = GRID_OUTPUT_DIR / f"grid_search_summary_{_TDATE}.txt"
+GRID_STATE_FILE = GRID_OUTPUT_DIR / f"grid_search_state_{device_type}_{_TDATE}.json"
+GRID_RESULTS_FILE = GRID_OUTPUT_DIR / f"grid_search_results_{device_type}_{_TDATE}.json"
+GRID_SUMMARY_FILE = GRID_OUTPUT_DIR / f"grid_search_summary_{device_type}_{_TDATE}.txt"
 
 # Configurações de custo
 # Tarifa média de energia em USD/kWh (pode ser configurada via variável de ambiente)
